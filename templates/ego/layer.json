@@ -1,0 +1,13 @@
+{
+ "level": "ego",
+ "name": "<company>",
+ "globals": [
+  "glossario-<company>.md",
+  "regras-<company>.md"
+ ],
+ "rules": [],
+ "dirs": [],
+ "files": [],
+ "glossary": "glossario-<company>.md",
+ "company": "<company>"
+}

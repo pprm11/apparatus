@@ -1,0 +1,16 @@
+{
+ "level": "id",
+ "globals": [
+  "padroes-do-usuario.md",
+  "linguagem-do-usuario.md"
+ ],
+ "rules": [],
+ "dirs": [
+  "pdi"
+ ],
+ "files": [],
+ "sealed": [
+  "pdi/evidencias"
+ ],
+ "glossary": "linguagem-do-usuario.md"
+}

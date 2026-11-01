@@ -1,0 +1,14 @@
+{
+ "version": 1,
+ "note": "All items start as draft until a first PR review promotes them to stable.",
+ "items": {
+  "rules/collective-engineering.md": {
+   "owner": "rules-owners",
+   "source": "superego template",
+   "created": "{{iso}}",
+   "review_by": "{{review}}",
+   "status": "draft",
+   "locked": false
+  }
+ }
+}

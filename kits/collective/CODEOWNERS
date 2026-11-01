@@ -1,0 +1,11 @@
+# Owners per area. Today every area is owned by the repository owner; add the teammates' GitHub handles here
+# as they take an area (for example `/skills/  @{{github}} @teammate`). With "Require review from Code Owners" on,
+# a change needs approval from the owner of each area it touches. The last matching pattern wins.
+*                         @{{github}}
+/CODEOWNERS               @{{github}}
+/global/                  @{{github}}
+/rules/                   @{{github}}
+/skills/                  @{{github}}
+/.github/                 @{{github}}
+/ci/                      @{{github}}
+/docs/                    @{{github}}

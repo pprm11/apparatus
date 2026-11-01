@@ -1,0 +1,12 @@
+# gitleaks config: default rules plus an allowlist for two test files that hold fake secrets on purpose.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "fake credentials used as redaction test corpus"
+paths = [
+  # tools/redact.py is tested against AWS-key and API-key shaped strings (tests/test_tools.py:15,19).
+  '''tests/test_tools\.py''',
+  # tests/test_routines.py:250 builds a fake api key to check that prompts are redacted.
+  '''tests/test_routines\.py''',
+]

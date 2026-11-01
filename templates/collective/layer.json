@@ -1,0 +1,15 @@
+{
+ "level": "collective",
+ "name": "<team>",
+ "mode": "readonly",
+ "globals": [
+  "glossary.md"
+ ],
+ "rules": [
+  "collective-engineering.md"
+ ],
+ "dirs": [],
+ "files": [],
+ "company": "<team>",
+ "glossary": "glossary.md"
+}

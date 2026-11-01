@@ -1,0 +1,265 @@
+{
+ "schema_version": 1,
+ "layer_json_keys": [
+  "company",
+  "dirs",
+  "files",
+  "globals",
+  "glossary",
+  "inbox",
+  "install_exclude",
+  "level",
+  "mode",
+  "name",
+  "rules",
+  "sealed"
+ ],
+ "manifest_keys": [
+  "claude_home",
+  "default_level",
+  "id",
+  "layers",
+  "runner"
+ ],
+ "manifest_layer_keys": [
+  "level",
+  "path",
+  "repo",
+  "active",
+  "mode",
+  "ref"
+ ],
+ "context_budget_keys": [
+  "adapter",
+  "collective",
+  "ego",
+  "id",
+  "root",
+  "superego"
+ ],
+ "cli": {
+  "onboard": {
+   "flags": [
+    "--claude-home",
+    "--codex-home"
+   ],
+   "commands": {
+    "init": [
+     "--bw-region",
+     "--codes",
+     "--deny-company",
+     "--git-host",
+     "--github",
+     "--id-repo",
+     "--jobs",
+     "--layer",
+     "--name",
+     "--new-collective",
+     "--no-collective",
+     "--psique-repo",
+     "--root",
+     "--superego-ref",
+     "--vault",
+     "--yes"
+    ],
+    "restore": [
+     "--bw-region",
+     "--codes",
+     "--git-host",
+     "--github",
+     "--jobs",
+     "--psique-repo",
+     "--vault",
+     "--yes"
+    ],
+    "update": [
+     "--manifest",
+     "--no-pull",
+     "--push",
+     "--quiet",
+     "--upgrade"
+    ],
+    "doctor": [
+     "--manifest"
+    ],
+    "jobs": [
+     "--manifest"
+    ],
+    "vault": [
+     "--bw-region"
+    ],
+    "contribute": [],
+    "uninstall": [
+     "--confirm-remote-delete",
+     "--delete-remote-repos",
+     "--dry-run",
+     "--i-am-sure",
+     "--keep-clones",
+     "--remove-age-key",
+     "--yes"
+    ]
+   }
+  },
+  "layers": {
+   "flags": [
+    "--all",
+    "--claude-home",
+    "--dry-run",
+    "--level",
+    "--manifest",
+    "--root"
+   ],
+   "commands": {
+    "plan": [],
+    "export": [],
+    "unlabeled": [],
+    "pull": []
+   }
+  },
+  "compose": {
+   "flags": [
+    "--claude-home",
+    "--codes",
+    "--codex-home",
+    "--companies",
+    "--company",
+    "--dry-run",
+    "--manifest",
+    "--out",
+    "--root"
+   ]
+  },
+  "context_budget": {
+   "flags": [
+    "--base",
+    "--claude-home",
+    "--inbox",
+    "--json",
+    "--manifest",
+    "--repo",
+    "--root"
+   ]
+  },
+  "render_harness": {
+   "flags": [
+    "--claude-home",
+    "--codes",
+    "--codex-home",
+    "--companies",
+    "--company",
+    "--dry-run",
+    "--manifest",
+    "--max-bytes",
+    "--root"
+   ]
+  },
+  "privacy": {
+   "flags": [
+    "--allow-word",
+    "--json"
+   ]
+  },
+  "bootstrap": {
+   "flags": [
+    "--dry-run",
+    "--json",
+    "--manifest",
+    "--psique",
+    "--step",
+    "--with-jobs"
+   ]
+  },
+  "doctor": {
+   "flags": [
+    "--json",
+    "--manifest"
+   ]
+  },
+  "roots": {
+   "flags": [
+    "--root"
+   ]
+  },
+  "migrate": {
+   "flags": [
+    "--apply",
+    "--claude-home",
+    "--manifest",
+    "--repos",
+    "--root"
+   ]
+  }
+ },
+ "template_files": [
+  "templates/collective/README.md",
+  "templates/collective/global/glossary.md",
+  "templates/collective/layer.json",
+  "templates/collective/rules/collective-engineering.md",
+  "templates/ego/README.md",
+  "templates/ego/global/glossario-empresa.md",
+  "templates/ego/global/regras-empresa.md",
+  "templates/ego/layer.json",
+  "templates/ego/memory/chave-do-projeto/MEMORY.md",
+  "templates/id/README.md",
+  "templates/id/global/linguagem-do-usuario.md",
+  "templates/id/global/padroes-do-usuario.md",
+  "templates/id/layer.json",
+  "templates/id/memory/chave-do-projeto/MEMORY.md",
+  "templates/id/pdi/README.md",
+  "templates/id/sealed/README.md",
+  "templates/persona/README.md",
+  "templates/persona/global/practices.md",
+  "templates/persona/layer.json",
+  "templates/psique/.gitignore",
+  "templates/psique/README.md",
+  "templates/psique/manifest.json"
+ ],
+ "read_paths": [
+  "ci/privacy-terms.json",
+  "global/glossario-agente.md",
+  "global/regras-de-agente.md",
+  "harness/claude.md",
+  "harness/codex.md",
+  "harness/skills.json",
+  "layer.json",
+  "rules/agentes-e-sessoes.md",
+  "rules/mapa-do-contexto.md",
+  "rules/uso-de-ia.md",
+  "scripts/hook-bash-guard.py",
+  "scripts/hook-prompt-guard.py",
+  "scripts/test_hook_bash_guard.py",
+  "scripts/test_vault_sync.py",
+  "scripts/vault-sync.sh",
+  "scripts/vault_sync.py",
+  "tools/bootstrap.py",
+  "tools/compose.py",
+  "tools/context_budget.py",
+  "tools/doctor.py",
+  "tools/layers.py",
+  "tools/migrate.py",
+  "tools/onboard.py",
+  "tools/privacy.py",
+  "tools/render_harness.py",
+  "tools/roots.py"
+ ],
+ "rule_ids": [
+  "agentes-e-sessoes.md",
+  "glossario-agente.md",
+  "mapa-do-contexto.md",
+  "regras-de-agente.md",
+  "uso-de-ia.md"
+ ],
+ "skills": [
+  "causa-raiz",
+  "code-review-critico",
+  "context-ingest",
+  "context-recall",
+  "engenharia-em-etapas",
+  "humanize",
+  "orquestrar-cruzado",
+  "orquestrar-sonnet-haiku",
+  "telinhas",
+  "ub-mode",
+  "vault"
+ ]
+}

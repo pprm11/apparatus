@@ -1,0 +1,17 @@
+{
+ "_notes": {
+  "about": "The old to new map of the pre-1.0 rename. tools/migrate.py reads it; CHANGELOG.md prints the same table. Add entries as a stage lands, never remove one (an install that skipped a release still needs it).",
+  "repos": "GitHub repository names, owner-less: the owner of each manifest URL stays as it is. Applied to manifest `repo` URLs and printed; the repository itself is renamed or recreated by the maintainer, so `migrate.py --apply` rewrites URLs only with --repos.",
+  "files": "Paths relative to the claude home (and to a layer repo): globals, rules and dirs named in layer.json, and @imports in generated files.",
+  "skills": "Skill folder names. Alias folders keep the old name working for one minor release.",
+  "removed_after": "The release that drops the old names (deprecation window, GOVERNANCE.md)."
+ },
+ "repos": {
+  "psique": "self",
+  "id-context": "id",
+  "superego": "apparatus"
+ },
+ "files": {},
+ "skills": {},
+ "removed_after": "next major"
+}

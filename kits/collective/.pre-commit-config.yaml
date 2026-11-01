@@ -1,0 +1,16 @@
+# Optional: the same gates through the pre-commit framework (https://pre-commit.com).
+# Without the framework, `python -I ci/install-hooks.py` writes plain git hooks that do the same.
+repos:
+  - repo: local
+    hooks:
+      - id: ci-gates
+        name: ci gates (staged files)
+        entry: python -I ci/install-hooks.py --run-staged
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: ci-commit-title
+        name: conventional commit title
+        entry: python -I ci/install-hooks.py --check-msg
+        language: system
+        stages: [commit-msg]

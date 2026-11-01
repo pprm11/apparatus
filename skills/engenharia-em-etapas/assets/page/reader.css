@@ -1,0 +1,33 @@
+/* Reading aids: progress, scroll spy, popovers, return pill, heading links, search, code copy, print. */
+#progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); z-index: 50; }
+nav.index a.active { color: var(--accent); font-weight: 600; }
+.pop { position: absolute; z-index: 60; max-width: min(380px, 90vw); background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font: 13px/1.45 var(--f-body); box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.pop .ph { font-weight: 600; margin-bottom: 4px; }
+.pop .pu { margin-top: 8px; color: var(--muted); }
+.pop .pu a { color: var(--accent); }
+.pop .pa { margin-top: 8px; display: flex; gap: 12px; }
+.pop .pa a { color: var(--accent); }
+#back { position: fixed; right: 18px; bottom: 18px; z-index: 55; display: none; background: var(--accent); color: var(--bg); border: none; border-radius: 999px; padding: 8px 14px; font: 600 13px var(--f-body); cursor: pointer; }
+#back.show { display: block; }
+h2[id], h3[id] { scroll-margin-top: 12px; }
+.hlink { margin-left: 8px; opacity: 0; border: none; background: none; color: var(--muted); cursor: pointer; font: 500 14px var(--f-mono); padding: 0 4px; }
+h2:hover .hlink, h3:hover .hlink, .hlink:focus-visible { opacity: 1; }
+#search { position: fixed; inset: 0; z-index: 70; display: none; background: rgba(0,0,0,.45); }
+#search.open { display: block; }
+#search .box { margin: 8vh auto 0; width: min(680px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+#search input { width: 100%; box-sizing: border-box; font: 16px var(--f-body); padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+#search ol { list-style: none; margin: 10px 0 0; padding: 0; max-height: 60vh; overflow: auto; }
+#search li a { display: block; padding: 7px 9px; border-radius: 4px; color: var(--fg); text-decoration: none; }
+#search li a .w { color: var(--muted); font-size: 12px; margin-left: 8px; }
+#search li a[aria-selected="true"], #search li a:hover { background: var(--accent-soft); }
+#search .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.searchbtn { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 6px; padding: 5px 10px; font: 13px var(--f-body); cursor: pointer; margin: 0 0 10px; width: 100%; text-align: left; }
+.codewrap { position: relative; }
+.codecopy { position: absolute; top: 6px; right: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 4px; font: 12px var(--f-body); padding: 2px 8px; cursor: pointer; }
+@media print {
+  nav.index, #back, #progress, .hlink, .codecopy, .searchbtn, #search, .pop { display: none !important; }
+  .page { display: block; }
+  a.ref, a.term { color: inherit; border: none; }
+  pre, table, .diagram { break-inside: avoid; }
+  section.doc { break-before: page; }
+}

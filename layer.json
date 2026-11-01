@@ -1,0 +1,29 @@
+{
+ "level": "superego",
+ "globals": [
+  "regras-de-agente.md",
+  "glossario-agente.md"
+ ],
+ "rules": [
+  "agentes-e-sessoes.md",
+  "mapa-do-contexto.md",
+  "uso-de-ia.md"
+ ],
+ "dirs": [
+  "harness"
+ ],
+ "files": [
+  "scripts/hook-bash-guard.py",
+  "scripts/hook-prompt-guard.py",
+  "scripts/test_hook_bash_guard.py",
+  "scripts/test_vault_sync.py",
+  "scripts/vault-sync.sh",
+  "scripts/vault_sync.py"
+ ],
+ "glossary": "glossario-agente.md",
+ "install_exclude": {
+  "skills": [
+   "engenharia-em-etapas"
+  ]
+ }
+}

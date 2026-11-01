@@ -1,0 +1,6 @@
+{
+  "name": "mermaid-check",
+  "private": true,
+  "type": "module",
+  "dependencies": { "jsdom": "^24.1.0", "mermaid": "^10.9.1" }
+}

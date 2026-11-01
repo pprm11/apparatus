@@ -1,0 +1,161 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: "20"
+      - name: Install linters
+        run: |
+          python -m pip install ruff==0.17.3
+          npm install --global markdownlint-cli2@0.14.0
+          shellcheck --version
+      - name: Gates (the unit suite runs in the tests job)
+        run: python -I ci/gates.py --strict --skip tests
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: Unit suite
+        run: python -I -m unittest discover -s tests
+      - name: Vault sync test (fake bw)
+        run: python -I scripts/test_vault_sync.py
+      - name: Always-loaded context size (per-layer byte budget, delta vs main)
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          python -I tools/context_budget.py --repo . --base origin/main
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks 8.30.1
+        run: |
+          curl -sSfL -o gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tgz" | sha256sum --check
+          tar -xzf gitleaks.tgz gitleaks
+      - name: Scan the full history
+        run: ./gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
+
+  pr-title:
+    name: pr-title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: Conventional Commits title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python -I ci/gates.py --only commit-title
+
+  windows:
+    name: windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: Gates that must hold on Windows (line endings, paths, restore and sync under Git Bash)
+        shell: bash
+        run: python -I ci/gates.py --strict --only eol,paths,text,exec-bit,deny,deny-ratchet,deny-paths,generated-md,layer-contract,install
+
+  tests-windows:
+    name: tests-windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: Unit suite on Windows (junctions, Git Bash)
+        shell: bash
+        # tools/layers.py logs os.path.relpath(dst) and raises ValueError when the temp dir (C:) and the
+        # checkout (D:) are on different drives, as on this runner. Keep temp on the checkout's drive.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: python -I -m unittest discover -s tests
+
+  cross-os:
+    name: cross-os (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: OS layer tests (paths, key file, scheduler rendering, bootstrap, doctor)
+        run: python -I -m unittest discover -s tests -p "test_cross_os.py" -v
+      - name: Bootstrap dry run (changes nothing)
+        run: python -I tools/bootstrap.py --psique OWNER/REPO --dry-run --step packages --step vault --step auth --step repos --step jobs
+      - name: Doctor runs and prints a checklist on this OS (failures are expected on a bare runner)
+        shell: bash
+        run: python -I tools/doctor.py --json > doctor.json || true; python -I -c "import json; d=json.load(open('doctor.json')); print(d['system'], len(d['checks']), 'checks')"
+      - name: Scheduler plan for this OS (prints, registers nothing)
+        shell: bash
+        run: |
+          mkdir meta
+          echo '{"layers": []}' > meta/manifest.json
+          python -I tools/scheduler.py plan --manifest meta/manifest.json
+
+  onboarding:
+    name: onboarding (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+      - name: Person install tests and privacy gate (temp HOME, bare repos, no GitHub)
+        run: python -I -m unittest discover -s tests -p "test_onboard.py" -v
+      - name: Install for a second person through the real entry script, with the scheduled job registered (disposable runner)
+        run: python -I tests/e2e_onboard.py --register-jobs
+

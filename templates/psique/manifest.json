@@ -1,0 +1,7 @@
+{
+ "id": "",
+ "default_level": "id",
+ "claude_home": "~/.claude",
+ "runner": "python",
+ "layers": []
+}

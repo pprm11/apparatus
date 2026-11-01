@@ -1,0 +1,27 @@
+{
+  // Relaxed on purpose: only rules that catch real breakage (broken tables, unclosed fences, bad links).
+  "default": false,
+  "MD009": true,
+  "MD010": true,
+  "MD011": true,
+  "MD014": false,
+  "MD018": true,
+  "MD019": true,
+  "MD023": true,
+  "MD031": true,
+  "MD032": false,
+  "MD037": true,
+  "MD038": true,
+  "MD039": true,
+  "MD040": false,
+  "MD042": true,
+  "MD045": false,
+  "MD046": false,
+  "MD047": true,
+  "MD048": true,
+  "MD051": true,
+  "MD052": true,
+  "MD053": true,
+  "MD055": true,
+  "MD056": true
+}

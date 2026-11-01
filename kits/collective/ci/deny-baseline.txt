@@ -1,0 +1,1 @@
+# Known deny-list hits, reported as warnings. Format: <path><TAB><pattern name>. Empty on purpose.
