@@ -143,7 +143,7 @@ class SecretsBackupTest(unittest.TestCase):
         self.assertNotIn("dummy-value", self.out)
         manifest = open(os.path.join(self.home, ".claude", "scripts", "secrets-manifest.txt")).read()
         self.assertIn("~/Codes/app/.env", manifest)
-        self.assertEqual(json.load(open(self.env["FAKE_DEC_STATE"])), ["Segredos novos no backup automático (6)"])
+        self.assertEqual(json.load(open(self.env["FAKE_DEC_STATE"])), ["New secrets in the automatic backup (6)"])
 
     def test_only_changed_files_are_reencrypted(self):
         self.run_tool("run")
@@ -176,14 +176,14 @@ class SecretsBackupTest(unittest.TestCase):
         self.assertEqual(len(os.listdir(self.sealed())), 7)  # nothing deleted from the backup
         manifest = open(os.path.join(self.home, ".claude", "scripts", "secrets-manifest.txt")).read()
         self.assertIn("~/Codes/app/cert.pem", manifest)  # nor from the manifest
-        self.assertTrue(any("sumiram" in t for t in json.load(open(self.env["FAKE_DEC_STATE"]))))
+        self.assertTrue(any("disappeared" in t for t in json.load(open(self.env["FAKE_DEC_STATE"]))))
 
     def test_failure_does_not_stop_others_and_goes_to_inbox(self):
         self.write("Codes/app/.env.boom", b"BOOM", base=self.home)
         self.assertEqual(self.run_tool("run", FAKE_AGE_FAIL="1"), 1)
         self.assertIn("FAILED", self.out)
         self.assertIn("6 encrypted", self.out)
-        self.assertTrue(any("falhou" in t for t in json.load(open(self.env["FAKE_DEC_STATE"]))))
+        self.assertTrue(any("failed" in t for t in json.load(open(self.env["FAKE_DEC_STATE"]))))
 
     def test_restore_roundtrip_skips_existing_and_rejects_wrong_key(self):
         self.run_tool("run")

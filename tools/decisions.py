@@ -41,13 +41,13 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARCHIVE_AFTER_DAYS = 3  # a finished session idle this long is offered for archiving
 PROPOSAL = re.compile(r"^### (P-[\d-]+) · (.+?)\n(.*?)^Status: (\w+)", re.M | re.S)
 KIND_LABEL = {
-    "session_waiting": "Sessão esperando você",
-    "manual": "Decisão pedida numa sessão",
-    "proposal": "Proposta de mudança",
-    "skill_draft": "Rascunho de skill",
-    "session_archive": "Sessão para arquivar",
-    "dormant_memory": "Memória dormente",
-    "dormant_skill": "Skill dormente",
+    "session_waiting": "Session waiting for you",
+    "manual": "Decision requested in a session",
+    "proposal": "Change proposal",
+    "skill_draft": "Skill draft",
+    "session_archive": "Session to archive",
+    "dormant_memory": "Dormant memory",
+    "dormant_skill": "Dormant skill",
 }
 ORDER = list(KIND_LABEL)
 LEVELS = ("superego", "ego", "id")
@@ -74,7 +74,8 @@ def locked(home: str = HOME):
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # Windows raises PermissionError, not FileExistsError, while another process is deleting the lock.
             try:
                 if time.time() - os.path.getmtime(path) > LOCK_STALE:
                     os.remove(path)
@@ -139,16 +140,16 @@ def auto_candidates(home: str, sessions: list, now: float) -> dict[str, dict]:
     """key -> fields for every auto item that should be open right now."""
     out: dict[str, dict] = {}
     for s in sessions:
-        where = f"{s.harness} · {os.path.basename(s.cwd) or 'sem pasta'}"
+        where = f"{s.harness} · {os.path.basename(s.cwd) or 'no folder'}"
         if s.status == "waiting":
             out[f"waiting:{s.harness}:{s.id}"] = dict(
                 kind="session_waiting", level="ego", title=s.title or s.id, detail=s.ask, source=where,
-                options=["A respondo na sessão", "B arquivar"], ref={"harness": s.harness, "id": s.id})
+                options=["A I answer in the session", "B archive"], ref={"harness": s.harness, "id": s.id})
         elif s.status == "done" and s.idle_days(now) >= ARCHIVE_AFTER_DAYS:
             out[f"archive:{s.harness}:{s.id}"] = dict(
                 kind="session_archive", level="ego", title=s.title or s.id, source=where,
-                detail=f"concluída, parada há {int(s.idle_days(now))} dias",
-                options=["A arquivar", "B manter aberta"], ref={"harness": s.harness, "id": s.id})
+                detail=f"finished, idle for {int(s.idle_days(now))} days",
+                options=["A archive", "B keep open"], ref={"harness": s.harness, "id": s.id})
     proposals = os.path.join(REPO, "proposals.md")
     if os.path.isfile(proposals):
         with open(proposals, encoding="utf-8") as fh:
@@ -157,21 +158,21 @@ def auto_candidates(home: str, sessions: list, now: float) -> dict[str, dict]:
                     why = re.search(r"^Why: (.+)$", body, re.M)
                     out[f"proposal:{pid}"] = dict(
                         kind="proposal", level="ego", title=f"{pid} · {title}", detail=(why.group(1)[:400] if why else ""),
-                        source="ego/proposals.md", options=["A aprova", "B rejeita"], ref={"proposal": pid})
+                        source="ego/proposals.md", options=["A approve", "B reject"], ref={"proposal": pid})
     for skill in sorted(glob.glob(os.path.join(home, "skill-drafts", "*", "SKILL.md"))):
         name = os.path.basename(os.path.dirname(skill))
         out[f"skilldraft:{name}"] = dict(
             kind="skill_draft", title=name, source=os.path.dirname(skill),
-            detail="rascunho criado pela colheita de uma sessão arquivada",
-            options=["A instala", "B descarta"], ref={"skill": name})
+            detail="draft created by harvesting an archived session",
+            options=["A install", "B discard"], ref={"skill": name})
     dormant = os.path.join(home, "decisions", "dormant.json")
     if os.path.isfile(dormant):
         with open(dormant, encoding="utf-8") as fh:
             for d in json.load(fh):
                 out[f"dormant:{d['kind']}:{d['path']}"] = dict(
                     kind=f"dormant_{d['kind']}", title=d["name"], source=d["path"],
-                    detail=f"score {d['score']:.2f}, último uso {d['last_used'] or 'nunca visto'}, {d['uses']} usos",
-                    options=["A arquivar (vai para ~/.claude/archive, reversível)", "B manter", "C fixar (pinned)"],
+                    detail=f"score {d['score']:.2f}, last use {d['last_used'] or 'never seen'}, {d['uses']} uses",
+                    options=["A archive (moves to ~/.claude/archive, reversible)", "B keep", "C pin"],
                     ref={"path": d["path"], "what": d["kind"]})
     return out
 
@@ -210,7 +211,7 @@ def scan(home: str = HOME, sessions: list | None = None, now: float | None = Non
                         changed = True
         for item in data["items"]:
             if item["key"] and item["status"] == "open" and item["key"] not in wanted:
-                item.update(status="dropped", note="a causa sumiu (arquivada, respondida ou fechada fora da caixa)")
+                item.update(status="dropped", note="the cause is gone (archived, answered or closed outside the inbox)")
                 dropped += 1
         if added or dropped or changed:
             save(data, home)
@@ -269,7 +270,7 @@ def apply(home: str = HOME) -> list[str]:
                     done = "kept"
             elif item["kind"] == "manual" or (item["kind"] != "proposal" and letter == "B"):
                 done = "nothing to run"
-            # proposal answers are applied by an agent session ("aprova P-..."), which then runs `applied`
+            # proposal answers are applied by an agent session ("approve P-..."), which then runs `applied`
             if done:
                 item["applied"] = today()
                 log.append(f"{item['id']}: {done}")
@@ -375,21 +376,21 @@ def render_html(data: dict, scanned: str = "") -> str:
             opts = "".join(f'<span class="opt">{esc(o)}</span>' for o in i["options"])
             body.append(
                 f'<div class="item{hot}"><div class="top"><span class="id">{esc(i["id"])}</span>'
-                f'<span class="t">{esc(i["title"])}</span><span class="src">{esc(i["source"])}{lvl} · desde {esc(i["created"])}</span></div>'
+                f'<span class="t">{esc(i["title"])}</span><span class="src">{esc(i["source"])}{lvl} · since {esc(i["created"])}</span></div>'
                 + (f'<div class="d">{esc(i["detail"])}</div>' if i["detail"] else "")
                 + (f'<div class="opts">{opts}</div>' if opts else "") + "</div>")
     if personal:
-        body.append(f'<p class="sub">{personal} decisões pessoais, veja a sessão.</p>')
+        body.append(f'<p class="sub">{personal} personal decisions, see the session.</p>')
     if not all_open:
-        body.append('<p class="sub">Nada pendente.</p>')
+        body.append('<p class="sub">Nothing pending.</p>')
     # Artifact page contract: no doctype/html/head/body of our own; the publisher wraps the page.
-    return f"""<title>Caixa de decisões</title>
+    return f"""<title>Decision inbox</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-{FONTS}<style>{CSS}</style><main lang="pt-BR">
-<h1>Caixa de decisões</h1><div class="sub">{len(all_open)} pendentes · atualizada {esc(scanned or data.get('scanned', ''))} · Claude Code e Codex</div>
+{FONTS}<style>{CSS}</style><main lang="en">
+<h1>Decision inbox</h1><div class="sub">{len(all_open)} pending · updated {esc(scanned or data.get('scanned', ''))} · Claude Code and Codex</div>
 <div class="stats">{stats}</div>{''.join(body)}
-<div class="how">Para decidir, diga em qualquer sessão (Claude ou Codex): <code>resolve D-12 A</code>, ou várias de uma vez
-(<code>D-3 A, D-7 B</code>). A tarefa diária das 09:00 também pergunta. Comando: <code>python -I ~/Codes/superego/tools/decisions.py</code></div>
+<div class="how">To decide, say in any session (Claude or Codex): <code>resolve D-12 A</code>, or several at once
+(<code>D-3 A, D-7 B</code>). The daily 09:00 task asks too. Command: <code>python -I ~/Codes/superego/tools/decisions.py</code></div>
 </main>
 """
 

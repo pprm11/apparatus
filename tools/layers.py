@@ -130,6 +130,10 @@ def load_manifest(path: str, root: str | None = None) -> dict:
     root = root or os.path.dirname(os.path.dirname(os.path.abspath(path)))
     for layer in man["layers"]:
         layer["path"] = roots.resolve_layer_path(layer["path"], root)
+        nested = os.path.join(layer["path"], "superego")
+        if (layer.get("level") == "superego" and not os.path.isfile(os.path.join(layer["path"], "layer.json"))
+                and os.path.isfile(os.path.join(nested, "layer.json"))):
+            layer["path"] = nested  # a manifest from before the layer moved under <apparatus>/superego keeps working
         layer.setdefault("active", True)
         cfg = os.path.join(layer["path"], "layer.json")
         layer["config"] = read_json(cfg) if os.path.isfile(cfg) else {}
@@ -159,14 +163,27 @@ def writable_layers(man: dict) -> list[dict]:
     return [l for l in active_layers(man) if not is_readonly(l)]
 
 
+def repo_root(path: str) -> str:
+    """The git checkout that holds a layer: the layer folder itself, or the nearest parent with a .git (the
+    superego layer lives in <apparatus>/superego)."""
+    cur = os.path.abspath(path)
+    while True:
+        if os.path.exists(os.path.join(cur, ".git")):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return os.path.abspath(path)
+        cur = parent
+
+
 def pull(man: dict, dry: bool = False) -> list[str]:
     """Bring each active readonly layer to its pinned `ref` (tag or SHA), or fast-forward it when no ref is set."""
     log: list[str] = []
     for layer in active_layers(man):
         if not is_readonly(layer):
             continue
-        repo, ref = layer["path"], layer.get("ref")
-        if not os.path.isdir(os.path.join(repo, ".git")):
+        repo, ref = repo_root(layer["path"]), layer.get("ref")
+        if not os.path.exists(os.path.join(repo, ".git")):
             log.append(f"[{layer['level']}] {repo} is not a git repo, skipped")
             continue
         has_remote = bool(subprocess.run(["git", "-C", repo, "remote"], capture_output=True, text=True).stdout.strip())

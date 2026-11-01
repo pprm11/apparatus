@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 TOOL = os.path.join(ROOT, "tools", "mirror_public.py")
@@ -47,6 +49,10 @@ class MirrorBase(unittest.TestCase):
         write(os.path.join(self.src, "lint-report.md"), "generated\n")
         write(os.path.join(self.src, "ci", "deny-baseline.txt"), "# header\n")
         write(os.path.join(self.src, "ci", "gates.py"), "print(1)\n")
+        write(os.path.join(self.src, "ci", "privacy-terms.json"), json.dumps({
+            "patterns": [{"name": "email", "regex": "example-pattern"}],
+            "forbidden_layer_repos": [], "personal_levels": ["id"],
+        }))
 
     def commit(self):
         self.git(self.src, "add", "-A", "-f")
@@ -67,7 +73,7 @@ class PlanTest(MirrorBase):
         self.commit()
         plan = mp.make_plan(self.src)
         self.assertEqual(plan.hits, [])
-        self.assertEqual(plan.files, ["README.md", "ci/config.json", "ci/gates.py", "skills/demo/SKILL.md"])
+        self.assertEqual(plan.files, ["README.md", "ci/privacy-terms.json", "skills/demo/SKILL.md"])
 
     def test_a_deny_hit_is_reported_with_file_and_pattern_name_only(self):
         write(os.path.join(self.src, "docs", "a.md"), LEAK + "\n")
@@ -75,13 +81,23 @@ class PlanTest(MirrorBase):
         plan = mp.make_plan(self.src)
         self.assertEqual(plan.hits, [("docs/a.md", "owner-name")])
 
-    def test_a_hit_in_a_path_the_gate_allows_withholds_the_file(self):
-        write(os.path.join(self.src, "ci", "terms.json"), LEAK + "\n")
+    def test_a_private_name_in_runtime_privacy_terms_refuses_the_mirror(self):
+        write(os.path.join(self.src, "ci", "privacy-terms.json"), LEAK + "\n")
+        self.commit()
+        plan = mp.make_plan(self.src)
+        self.assertEqual(plan.hits, [("ci/privacy-terms.json", "owner-name")])
+        r = self.run_tool("--target", self.dst)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(self.dst))
+
+    def test_unknown_ci_files_and_staged_private_terms_are_excluded(self):
+        write(os.path.join(self.src, "ci", "future-config.json"), LEAK)
+        write(os.path.join(self.src, ".staging", "privacy-terms.local.json"), LEAK)
         self.commit()
         plan = mp.make_plan(self.src)
         self.assertEqual(plan.hits, [])
-        self.assertEqual(plan.withheld, ["ci/terms.json"])
-        self.assertNotIn("ci/terms.json", plan.files)
+        self.assertNotIn("ci/future-config.json", plan.files)
+        self.assertNotIn(".staging/privacy-terms.local.json", plan.files)
 
     def test_reads_the_committed_content_not_the_working_tree(self):
         self.commit()
@@ -94,7 +110,9 @@ class CliTest(MirrorBase):
         self.commit()
         r = self.run_tool("--dry-run", "--target", self.dst)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("would publish 4 file(s)", r.stdout)
+        self.assertIn("would publish 3 file(s)", r.stdout)
+        self.assertIn("ci/privacy-terms.json", r.stdout)
+        self.assertIn("parent: none", r.stdout)
         self.assertIn("README.md", r.stdout)
         self.assertNotIn("runs/r1/log.txt", r.stdout)
         self.assertFalse(os.path.exists(self.dst))
@@ -118,7 +136,8 @@ class CliTest(MirrorBase):
         with open(os.path.join(self.dst, "MIRROR.md"), encoding="utf-8") as fh:
             notice = fh.read()
         self.assertIn(head, notice)
-        self.assertIn("no history", notice)
+        self.assertIn("no source history", notice)
+        self.assertIn("git pull --ff-only", notice)
         self.assertIn("accepts no pull requests", notice)
         self.assertTrue(os.path.isfile(os.path.join(self.dst, "skills", "demo", "SKILL.md")))
         self.assertFalse(os.path.exists(os.path.join(self.dst, "runs")))
@@ -140,15 +159,64 @@ class CliTest(MirrorBase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertTrue(os.path.isfile(os.path.join(self.dst, "precious.txt")))
 
-    def test_publish_force_pushes_one_commit_without_history(self):
+    def test_publish_appends_one_parent_and_a_clone_fast_forwards(self):
         self.commit()
         remote = os.path.join(self.tmp, "public.git")
         self.git(self.tmp, "init", "-q", "--bare", "-b", "main", remote)
-        for _ in range(2):  # twice: the second run must still leave a single commit
-            r = self.run_tool("--target", self.dst, "--publish", "--remote", remote)
-            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.run_tool("--target", self.dst, "--publish", "--remote", remote)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        first = self.git(remote, "rev-parse", "main")
         self.assertEqual(self.git(remote, "rev-list", "--count", "main"), "1")
-        self.assertIn("MIRROR.md", self.git(remote, "ls-tree", "--name-only", "main"))
+        clone = os.path.join(self.tmp, "client")
+        self.git(self.tmp, "clone", "-q", remote, clone)
+        write(os.path.join(self.src, "README.md"), "updated generic text\n")
+        self.commit()
+        dry = self.run_tool("--dry-run", "--remote", remote)
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertIn(f"parent: {first}", dry.stdout)
+        # A fresh target must fetch the parent from the remote, rather than reuse local history.
+        r = self.run_tool("--target", self.dst + "-fresh", "--publish", "--remote", remote)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        second = self.git(remote, "rev-parse", "main")
+        self.assertEqual(self.git(remote, "rev-list", "--parents", "-n", "1", "main"), f"{second} {first}")
+        self.assertEqual(self.git(remote, "rev-list", "--count", "main"), "2")
+        self.git(clone, "pull", "--ff-only")
+        self.assertEqual(self.git(clone, "rev-parse", "HEAD"), second)
+        self.assertEqual(Path(clone, "README.md").read_text(encoding="utf-8"), "updated generic text\n")
+        self.assertTrue(Path(clone, "ci", "privacy-terms.json").is_file())
+
+    def test_publish_rejects_a_concurrent_remote_update(self):
+        self.commit()
+        remote = os.path.join(self.tmp, "public.git")
+        self.git(self.tmp, "init", "-q", "--bare", "-b", "main", remote)
+        r = self.run_tool("--target", self.dst, "--publish", "--remote", remote)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rival = os.path.join(self.tmp, "rival")
+        self.git(self.tmp, "clone", "-q", remote, rival)
+        plan = mp.make_plan(self.src)
+        mp.build(self.src, self.dst, plan)
+        original_git = mp.git
+        pushed = []
+
+        def race(root, *args, **kwargs):
+            if args[0] == "push":
+                self.assertNotIn("--force", args)
+                write(os.path.join(rival, "rival.txt"), "concurrent publish\n")
+                self.git(rival, "add", "-A")
+                self.git(rival, "commit", "-qm", "rival")
+                self.git(rival, "push", "-q", "origin", "main")
+                pushed.append(self.git(remote, "rev-parse", "main"))
+            return original_git(root, *args, **kwargs)
+
+        with mock.patch.object(mp, "git", side_effect=race), self.assertRaises(OSError):
+            mp.publish(self.dst, remote, plan)
+        self.assertEqual(self.git(remote, "rev-parse", "main"), pushed[0])
+
+    def test_dry_run_remote_failure_is_reported_without_building(self):
+        self.commit()
+        r = self.run_tool("--dry-run", "--remote", os.path.join(self.tmp, "missing.git"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(self.dst))
 
     def test_publish_needs_a_remote(self):
         self.commit()

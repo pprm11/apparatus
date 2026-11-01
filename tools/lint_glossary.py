@@ -9,10 +9,10 @@ Each layer names its glossary in layer.json (`"glossary": "<file>"`, also listed
 markdown document in a fixed shape:
 
     # <title>
-    Versão: vN[.M], DD/MM/AAAA. ...
-    ## Colisões (...)            table | Palavra | Sentidos | Termo padrão |
-    ## Termos padrão             bullets with **term**: definition (### sub-headings allowed)
-    ## Como interpretar pedidos  bullets with **expression**: reading
+    Version: vN[.M], YYYY-MM-DD. ...
+    ## Collisions (...)          table | Word | Senses | Standard term |
+    ## Standard terms            bullets with **term**: definition (### sub-headings allowed)
+    ## How to read requests      bullets with **expression**: reading
 
 Problems (exit 1): glossary not declared, missing, not in globals, no version line, a required section
 missing, a term defined in two layers with different texts and not listed as a collision anywhere, and a
@@ -25,8 +25,11 @@ import os
 import re
 import sys
 
-SECTIONS = ("Colisões", "Termos padrão", "Como interpretar pedidos")
-VERSION = re.compile(r"^Versão:\s*v\d+(?:\.\d+)*,\s*(?:\d{2}/\d{2}/\d{4}|DD/MM/AAAA)\.", re.M)
+SECTIONS = ("Collisions", "Standard terms", "How to read requests")
+# Legacy Portuguese headings and version line stay accepted: layers of an existing install may still use them.
+VERSION = re.compile(r"^(?:Versão|Version):\s*v\d+(?:\.\d+)*,\s*(?:\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}|DD/MM/AAAA|YYYY-MM-DD)\.", re.M)
+ALIASES = {"Collisions": ("Collisions", "Colisões"), "Standard terms": ("Standard terms", "Termos padrão"),
+           "How to read requests": ("How to read requests", "Como interpretar pedidos")}
 TERM = re.compile(r"\*\*([^*\n]{1,60})\*\*\s*(?:\([^)]*\)\s*)?[:=]")
 HEADING = re.compile(r"^##\s+(.+?)\s*$", re.M)
 ROW = re.compile(r"^\|\s*([^|]+?)\s*\|", re.M)
@@ -50,8 +53,9 @@ def sections(text: str) -> dict[str, str]:
 
 
 def section(secs: dict[str, str], name: str) -> str | None:
+    names = ALIASES.get(name, (name,))
     for head, body in secs.items():
-        if head.startswith(name):
+        if head.startswith(names):
             return body
     return None
 
@@ -120,7 +124,7 @@ def load_layer_dirs(dirs: list[str]) -> list[Layer]:
             cands = [os.path.join(d, "global", layer.glossary)]
             gdir = os.path.join(d, "global")
             if os.path.isdir(gdir):
-                cands += [os.path.join(gdir, f) for f in sorted(os.listdir(gdir)) if f.startswith("glossario") or f.startswith("linguagem") or f.startswith("ubiquitous")]
+                cands += [os.path.join(gdir, f) for f in sorted(os.listdir(gdir)) if f.startswith(("glossario", "glossary", "linguagem", "ubiquitous"))]
             for c in cands:
                 if os.path.isfile(c):
                     layer.text = read(c)
@@ -134,6 +138,8 @@ def check(layers: list[Layer]) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     for l in layers:
         who = f"`{l.level}` ({os.path.basename(l.path)})"
+        if l.level == "persona" and not l.glossary:
+            continue  # persona practices need no glossary of their own
         if not l.glossary:
             problems.append(f"- {who}: layer.json has no `glossary` field")
             continue
@@ -143,16 +149,16 @@ def check(layers: list[Layer]) -> tuple[list[str], list[str]]:
             problems.append(f"- {who}: glossary `{l.glossary}` not found")
             continue
         if not VERSION.search(l.text):
-            problems.append(f"- {who}: no `Versão: vN, DD/MM/AAAA.` line")
+            problems.append(f"- {who}: no `Version: vN, YYYY-MM-DD.` line (legacy Portuguese `Versão: vN, DD/MM/AAAA.` also accepted)")
         secs = sections(l.text)
         for name in SECTIONS:
             if section(secs, name) is None:
                 problems.append(f"- {who}: section `## {name}` missing")
-        for name in ("Termos padrão", "Como interpretar pedidos"):
+        for name in ("Standard terms", "How to read requests"):
             body = section(secs, name)
             if body:
                 l.terms.update(definitions(body))
-        col = section(secs, "Colisões")
+        col = section(secs, "Collisions")
         if col:
             l.collisions = collisions(col)
         size = len(l.text.encode("utf-8"))
@@ -166,7 +172,7 @@ def check(layers: list[Layer]) -> tuple[list[str], list[str]]:
                 if a.terms[term] == b.terms[term]:
                     warnings.append(f"- `{term}`: same definition in {a.level} and {b.level} (keep it in one layer)")
                 elif term not in all_collisions:
-                    problems.append(f"- `{term}`: defined in {a.level} and {b.level} with different texts and not in any Colisões table")
+                    problems.append(f"- `{term}`: defined in {a.level} and {b.level} with different texts and not in any Collisions table")
     # The superego glossary stays generic: it may not name a term another layer owns.
     for sup in [l for l in layers if l.level == "superego"]:
         owned = {t: l.level for l in layers if l is not sup for t in l.terms if t not in sup.terms}

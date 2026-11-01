@@ -17,8 +17,8 @@ import repo_gates  # noqa: E402,F401
 CFG = json.loads((HERE / "config.json").read_text(encoding="utf-8"))
 ENTRY = {"owner": "o", "source": "PR 1", "created": "2026-10-29", "review_by": "2027-04-29", "status": "stable",
          "locked": False}
-GLOSSARY = ("# Glossário compartilhado (nível collective)\n\n## Colisões\n\n| Palavra | Sentidos | Termo padrão |\n|---|---|---|\n"
-            "| onda | lote · disparo | **onda** · **onda de disparo** |\n\n## Produto\n- **Foo**: termo de teste.\n")
+GLOSSARY = ("# Team glossary (collective level)\n\n## Collisions\n\n| Word | Senses | Standard term |\n|---|---|---|\n"
+            "| wave | batch · dispatch | **wave** · **dispatch wave** |\n\n## Product\n- **Foo**: test term.\n")
 
 
 def run(name, files: dict, items: dict | None = None, env: dict | None = None, strict=False):
@@ -99,13 +99,13 @@ class CollectiveGateTests(unittest.TestCase):
     def test_glossary_format(self):
         gl = {"global/glossary.md": GLOSSARY}
         self.assertEqual(run("glossary-format", gl), [])
-        dup = {"global/glossary.md": GLOSSARY + "- **Foo**: de novo.\n"}
+        dup = {"global/glossary.md": GLOSSARY + "- **Foo**: again.\n"}
         self.assertTrue(any("already defined" in m for m in msgs(run("glossary-format", dup))))
-        bad_title = {"global/glossary.md": GLOSSARY.replace("# Glossário", "# Glossary")}
+        bad_title = {"global/glossary.md": GLOSSARY.replace("# Team glossary", "# Glossary")}
         self.assertTrue(any("first line" in m for m in msgs(run("glossary-format", bad_title))))
-        no_term = {"global/glossary.md": GLOSSARY + "- sem termo em negrito\n"}
+        no_term = {"global/glossary.md": GLOSSARY + "- no term in bold\n"}
         self.assertTrue(any("**term**" in m for m in msgs(run("glossary-format", no_term))))
-        wide = {"global/glossary.md": GLOSSARY.replace("| onda | lote · disparo |", "| onda | a | b | c |")}
+        wide = {"global/glossary.md": GLOSSARY.replace("| wave | batch · dispatch |", "| wave | a | b | c |")}
         self.assertTrue(any("3 columns" in m for m in msgs(run("glossary-format", wide))))
 
 

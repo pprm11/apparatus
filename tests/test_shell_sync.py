@@ -1,5 +1,6 @@
 """Offline smoke test of sync.sh in a sandbox: fake CLAUDE_HOME, fake HOME, a manifest with three layer repos
 (superego, ego, id), each with its own bare git remote."""
+import hashlib
 import json
 import os
 import shutil
@@ -59,11 +60,11 @@ class SyncSmokeTest(unittest.TestCase):
         write(os.path.join(self.claude, "CLAUDE.md"), "# global\n")
         write(os.path.join(self.claude, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: d\n---\n")
         write(os.path.join(self.claude, "skills", "synced", "x.md"), "claude.ai copy\n")
-        write(os.path.join(self.claude, "rules", "mapa-do-contexto.md"), "rule\n")  # superego rule (layer.json)
-        write(os.path.join(self.claude, "regras-de-agente.md"), "general rules\n")  # superego global
+        write(os.path.join(self.claude, "rules", "context-map.md"), "rule\n")  # superego rule (layer.json)
+        write(os.path.join(self.claude, "agent-rules.md"), "general rules\n")  # superego global
         write(os.path.join(self.claude, "harness", "claude.md"), "adapter\n")  # superego dir
         write(os.path.join(self.claude, "padroes-do-alex.md"), "personal\n")  # id global
-        write(os.path.join(self.claude, "glossario-test.md"), "glossary\n")  # ego global
+        write(os.path.join(self.claude, "glossary-test.md"), "glossary\n")  # ego global
         write(os.path.join(self.claude, "scripts", "estado", "s.json"), "{}\n")  # listed in no layer.json
         write(os.path.join(self.claude, "scripts", "tool.py"), "print(1)\n")  # listed in no layer.json
         for i in range(22):  # no level: they default to ego
@@ -74,8 +75,8 @@ class SyncSmokeTest(unittest.TestCase):
         # layer.json: the superego one is the real file; ego and id are trimmed fixtures (the real ones live in
         # other repos and the sandbox must not depend on sibling checkouts).
         layer_json = {
-            self.repo: open(os.path.join(ROOT, "layer.json"), encoding="utf-8").read(),
-            self.ego: json.dumps({"level": "ego", "name": "test", "globals": ["glossario-test.md"], "rules": [],
+            self.repo: open(os.path.join(ROOT, "superego", "layer.json"), encoding="utf-8").read(),
+            self.ego: json.dumps({"level": "ego", "name": "test", "globals": ["glossary-test.md"], "rules": [],
                                   "dirs": [], "files": []}),
             self.id: json.dumps({"level": "id", "globals": ["padroes-do-alex.md"], "rules": [], "dirs": [],
                                  "files": []}),
@@ -135,10 +136,10 @@ class SyncSmokeTest(unittest.TestCase):
         # unlabeled memories and skills default to ego; labeled ones go to their level
         self.assertIn("memory/C--proj-a/m0.md", ego)
         self.assertIn("skills/demo/SKILL.md", ego)
-        self.assertIn("global/glossario-test.md", ego)
+        self.assertIn("global/glossary-test.md", ego)
         self.assertIn("memory/C--proj-a/general.md", sup)
-        self.assertIn("global/regras-de-agente.md", sup)
-        self.assertIn("rules/mapa-do-contexto.md", sup)
+        self.assertIn("global/agent-rules.md", sup)
+        self.assertIn("rules/context-map.md", sup)
         self.assertIn("harness/claude.md", sup)
         self.assertIn("memory/C--proj-a/personal.md", idl)
         self.assertIn("global/padroes-do-alex.md", idl)
@@ -180,7 +181,29 @@ class SyncSmokeTest(unittest.TestCase):
         for _ in range(2):
             self.assertEqual(self.sync("--push").returncode, 0)
         inbox = open(os.path.join(self.home, ".claude", "decisions", "inbox.json"), encoding="utf-8").read()
-        self.assertEqual(inbox.count("Memórias ou skills sem nível"), 1)
+        self.assertEqual(inbox.count("Memories or skills without a level"), 1)
+
+    def test_layer_in_the_budget_band_keeps_its_always_loaded_files_out_of_the_commit(self):
+        man = json.load(open(self.manifest, encoding="utf-8"))
+        # superego: agent-rules.md (14 bytes) + rules/context-map.md (5) = 19, 95% of 20: in the band
+        man["budgets"] = {"superego": 20, "ego": 100, "id": 100, "adapter": 100, "root": 100}
+        write(self.manifest, json.dumps(man))
+        r = self.sync("--push")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("budget band: superego", r.stdout)
+        self.assertIn("held back (budget band, superego): global/agent-rules.md rules/context-map.md", r.stdout)
+        sup = self.tracked(self.repo)
+        self.assertNotIn("global/agent-rules.md", sup)
+        self.assertNotIn("rules/context-map.md", sup)
+        self.assertIn("harness/claude.md", sup)  # the adapter has its own budget and is under it
+        self.assertIn("memory/C--proj-a/general.md", sup)  # the rest of the layer still syncs
+        self.assertIn("global/glossary-test.md", self.tracked(self.ego))  # other layers untouched
+        inbox_path = os.path.join(self.claude, "decisions", "inbox.json")
+        self.assertEqual(open(inbox_path, encoding="utf-8").read().count("layer superego near or over budget"), 1)
+        self.assertIn("Cut candidates", open(inbox_path, encoding="utf-8").read())
+        self.assertEqual(self.sync("--push").returncode, 0)  # still held back, still one item
+        self.assertNotIn("global/agent-rules.md", self.tracked(self.repo))
+        self.assertEqual(open(inbox_path, encoding="utf-8").read().count("layer superego near or over budget"), 1)
 
     def test_push_retries_when_local_is_ahead(self):
         self.assertEqual(self.sync("--push").returncode, 0)
@@ -251,7 +274,7 @@ class SyncSmokeTest(unittest.TestCase):
         r = self.sync("--push")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("rules is missing", r.stderr)
-        self.assertTrue(os.path.exists(os.path.join(self.repo, "rules", "mapa-do-contexto.md")))
+        self.assertTrue(os.path.exists(os.path.join(self.repo, "rules", "context-map.md")))
         self.assertEqual(self.count(self.repo), before)
 
     def test_missing_project_memory_dir_aborts(self):
@@ -262,6 +285,36 @@ class SyncSmokeTest(unittest.TestCase):
         r = self.sync("--push")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertTrue(os.path.exists(os.path.join(self.ego, "memory", "C--proj-b", "z.md")))
+
+    def shortened_project(self):
+        key = "C--" + "long-project-" * 9
+        folder = f"{key[:60]}-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:10]}"
+        backup = os.path.join(self.ego, "memory", folder)
+        write(os.path.join(backup, ".project-key"), key + "\n")
+        write(os.path.join(backup, "long.md"), memory_text("long"))
+        return key, folder
+
+    def test_shortened_project_memory_uses_original_home_key(self):
+        key, folder = self.shortened_project()
+        self.memory("long", proj=key)
+        r = self.sync()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.exists(os.path.join(self.ego, "memory", folder, "long.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.claude, "projects", folder)))
+
+    def test_shortened_project_missing_original_home_aborts_without_mutation(self):
+        key, folder = self.shortened_project()
+        # A home folder named after the shortened export cannot stand in for the original.
+        self.memory("decoy", proj=folder)
+        before = self.count(self.ego)
+        r = self.sync()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(
+            f"projects/{key}/memory is missing or empty but {posix(self.ego)} has it; nothing was changed",
+            r.stderr,
+        )
+        self.assertTrue(os.path.exists(os.path.join(self.ego, "memory", folder, "long.md")))
+        self.assertEqual(self.count(self.ego), before)
 
     def test_failed_push_keeps_commits_and_exits_nonzero(self):
         self.git(self.ego, "remote", "set-url", "origin", posix(os.path.join(self.tmp, "nope.git")))
@@ -319,11 +372,11 @@ class SyncSmokeTest(unittest.TestCase):
         self.assertNotIn("memory/C--proj-a/big.md", self.tracked(self.ego))
         self.assertTrue(os.path.exists(os.path.join(self.ego, "memory", "C--proj-a", "big.md")))
         inbox = open(os.path.join(self.home, ".claude", "decisions", "inbox.json"), encoding="utf-8").read()
-        self.assertEqual(inbox.count("Arquivo grande barrado no sync: memory/C--proj-a/big.md"), 1)
+        self.assertEqual(inbox.count("Large file blocked from sync: memory/C--proj-a/big.md"), 1)
 
-    def test_readme_documents_partial_clone_and_size_threshold(self):
-        readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
-        self.assertRegex(readme, r"git clone --filter=blob:none https://github\.com/[^/\s]+/superego")
+    def test_operations_guide_documents_partial_clone_and_size_threshold(self):
+        readme = open(os.path.join(ROOT, "docs", "operations.md"), encoding="utf-8").read()  # the operations guide
+        self.assertRegex(readme, r"git clone --filter=blob:none https://github\.com/[^/\s]+/[a-z-]+")
         self.assertIn("50 MB", readme)
         self.assertIn("git bundle", readme)
 

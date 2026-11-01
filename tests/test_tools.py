@@ -16,23 +16,23 @@ BLOCK = {
     "Authorization: Bearer abc123def456ghi789": "abc123",
     "api_key = 'sk-abcdefghijklmnopqrstuv'": "sk-abc",
     "AKIAABCDEFGHIJKLMNOP": "AKIA",
-    "falar com joao.silva@globex.example.com": "joao.silva",
-    "CPF 123.456.789-09 do lead": "123.456",
+    "talk to joao.silva@globex.example.com": "joao.silva",
+    "CPF 123.456.789-09 of the lead": "123.456",
     "CPF 12345678909": "12345678909",
-    "ligar (11) 98765-4321": "98765",
+    "call (11) 98765-4321": "98765",
     "https://llm.example.com/v1/keys?token=abc": "token=abc",
-    "conta AWS 123456789012": "123456789012",
+    "AWS account 123456789012": "123456789012",
     "host 10.0.12.7": "10.0.12.7",
 }
 # PASS: correct phrasings that must stay readable.
 PASS = [
-    "PR #104 no hml, card T94",
-    "acme/judge-1.0 como segundo juiz",
-    "ruleset 25217784 do hml",
-    "secret management e token do GitHub",
+    "PR #104 on hml, card T94",
+    "acme/judge-1.0 as second judge",
+    "ruleset 25217784 of hml",
+    "secret management and GitHub token",
     "api_key=$LITELLM_API_KEY",
-    "bateria com 34 de 35 cenários",
-    "ADR-0135 e commit 3e6db90",
+    "battery with 34 of 35 scenarios",
+    "ADR-0135 and commit 3e6db90",
 ]
 
 
@@ -60,15 +60,15 @@ class SearchTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = self.root = self.tmp.name
-        _memory(root, "p1", "eval-gate", "modelos do eval-gate e Jev", "juiz Sonnet, Jev mede. Alex decidiu.")
-        _memory(root, "p1", "railway", "deploy no Railway hml", "Alex sobe api e worker. Contato 11987654321.")
-        _memory(root, "p2", "telinhas", "widgets para o Alex", "Alex gosta de telinha. Ver [[eval-gate]].")
+        _memory(root, "p1", "eval-gate", "models of the eval-gate and Jev", "Sonnet judge, Jev measures. Alex decided.")
+        _memory(root, "p1", "railway", "deploy on Railway hml", "Alex ships api and worker. Contact 11987654321.")
+        _memory(root, "p2", "telinhas", "widgets for Alex", "Alex likes widgets. See [[eval-gate]].")
         _memory(root, "p2", "owners", "Frozen-code owners approve agent PRs", "Sam approves.",
-                keywords="codigo congelado, quem aprova, code owners")
-        _memory(root, "p2", "my-harness", "harness pessoal governado por RFC", "RFC, HLA, ADR.")
+                keywords="frozen code, who approves, code owners")
+        _memory(root, "p2", "my-harness", "personal harness governed by RFC", "RFC, HLA, ADR.")
         with open(os.path.join(root, "ubiquitous-language.md"), "w", encoding="utf-8") as fh:
-            fh.write("| Palavra | Sentidos | Termo padrao |\n|---|---|---|\n"
-                     "| brain | harness pessoal · Brain do Acme OS | **my-harness** · **Brain** |\n")
+            fh.write("| Word | Senses | Standard term |\n|---|---|---|\n"
+                     "| brain | personal harness · Brain of Acme OS | **my-harness** · **Brain** |\n")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -78,14 +78,14 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(hits[0].doc.name, "eval-gate")
 
     def test_accent_insensitive_and_no_match(self) -> None:
-        self.assertEqual(search("júiz", self.root, 1)[0].doc.name, "eval-gate")
+        self.assertEqual(search("jûdge", self.root, 1)[0].doc.name, "eval-gate")
         self.assertEqual(search("kubernetes", self.root, 3), [])
 
-    def test_keywords_bridge_languages(self) -> None:
-        self.assertEqual(search("quem aprova codigo congelado", self.root, 1)[0].doc.name, "owners")
+    def test_keywords_bridge_phrasings(self) -> None:
+        self.assertEqual(search("who approves frozen code", self.root, 1)[0].doc.name, "owners")
 
     def test_glossary_alias_expands_query(self) -> None:
-        self.assertEqual(search("governanca do brain", self.root, 1)[0].doc.name, "my-harness")
+        self.assertEqual(search("governance of the brain", self.root, 1)[0].doc.name, "my-harness")
 
     def test_index_has_backlinks_and_catalog_lists_missing_keywords(self) -> None:
         index = build(self.root)
@@ -101,14 +101,14 @@ class SearchTest(unittest.TestCase):
         from search_memory import write_index
         out = os.path.join(self.root, "out")
         index_path, catalog_path = os.path.join(out, "i.json"), os.path.join(out, "INDEX.md")
-        _memory(self.root, "p2", "long", "texto longo", "palavra " * 300)
+        _memory(self.root, "p2", "long", "long text", "word " * 300)
         _, rebuilt = write_index(self.root, index_path=index_path, catalog_path=catalog_path)
         self.assertTrue(rebuilt)
         with open(index_path, encoding="utf-8") as fh:
             stored = json.load(fh)
         self.assertTrue(all(len(e["body"]) <= 400 for e in stored["docs"]))
         long_entry = next(e for e in stored["docs"] if e["name"] == "long")
-        self.assertIn("palavra", long_entry["tf"])  # tf was computed from the whole body
+        self.assertIn("word", long_entry["tf"])  # tf was computed from the whole body
         before = os.path.getmtime(index_path)
         _, rebuilt = write_index(self.root, index_path=index_path, catalog_path=catalog_path)
         self.assertFalse(rebuilt)

@@ -26,7 +26,7 @@ removal; nothing is deleted silently.
 
 ## Rules for content
 
-- Engineering text in English; Portuguese terms stay only where the team uses them.
+- Engineering text in English; Terms in another language stay only where the team uses them.
 - Skills are named `collective-<name>`, with `level: collective` in the frontmatter. Same name in two layers
   is a collision (Codex does not merge them).
 - Anything with a command, a script or a download needs the owner of `skills/` or `rules/` to read it line

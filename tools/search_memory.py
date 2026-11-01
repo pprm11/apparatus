@@ -33,11 +33,14 @@ BODY_STORED = 400  # chars of body kept in the index (jev_search --with-body sen
 FIELD_WEIGHTS = {"name": 3.0, "keywords": 3.0, "description": 2.0, "body": 1.0}
 ALIAS_WEIGHT = 0.5
 K1, B = 1.2, 0.75
-STOPWORDS = {
+STOPWORDS_EN = {"the", "and", "for", "with", "of", "to", "in", "on", "is", "it", "be", "how", "what", "who", "why",
+                "a", "an", "are", "at", "by", "from", "this", "that"}
+# Portuguese stopwords: data for memories written in Portuguese, kept so existing indexes rank the same way.
+STOPWORDS_PT = {
     "a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "no", "na", "nos", "nas", "um", "uma",
     "para", "pra", "pro", "por", "com", "sem", "que", "se", "qual", "quais", "como", "quem", "porque", "por que",
-    "the", "and", "for", "with", "of", "to", "in", "on", "is", "it", "be", "how", "what", "who", "why",
 }
+STOPWORDS = STOPWORDS_EN | STOPWORDS_PT
 FRONT = re.compile(r"^---\n(.*?)\n---\n", re.S)
 LINK = re.compile(r"\[\[([^\]]+)\]\]")
 

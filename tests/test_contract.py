@@ -74,6 +74,20 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(snapshot.contains({"skills": LIVE["skills"][:2]}, LIVE), [])
 
 
+class GlobalNamesTest(unittest.TestCase):
+    def test_global_and_rule_file_names_are_unique_across_layers(self) -> None:
+        """compose refuses two layers that ship the same global or rule file name, so every layer prefixes its own."""
+        seen: dict[str, str] = {}
+        for layer_json in [ROOT / "superego" / "layer.json", *sorted((ROOT / "templates").glob("*/layer.json"))]:
+            cfg = json.loads(layer_json.read_text(encoding="utf-8"))
+            if cfg.get("level") == "psique":
+                continue
+            for name in cfg.get("globals", []) + cfg.get("rules", []):
+                where = layer_json.parent.name
+                self.assertNotIn(name, seen, f"{name} is in {where} and {seen.get(name)}")
+                seen[name] = where
+
+
 class ChangelogTest(unittest.TestCase):
     def test_changelog_keeps_a_changelog_shape(self) -> None:
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -93,18 +107,17 @@ class ChangelogTest(unittest.TestCase):
 
 
 class NoIdentifiersTest(unittest.TestCase):
-    """superego carries no person or company identifier. Patterns come from ci/privacy-terms.json (the one list the
-    installer, CI and tests share); tests/test_generic.py keeps its own list and the CI deny gate adds machine paths."""
+    """Source-layer identifiers remain governed by the unchanged CI deny configuration."""
 
-    PATTERNS = json.loads((ROOT / "ci" / "privacy-terms.json").read_text(encoding="utf-8"))["patterns"]
+    PATTERNS = json.loads((ROOT / "ci" / "config.json").read_text(encoding="utf-8"))["denylist"]["patterns"]
     # Files that must name the terms because they define or test the gates, plus third-party skill text.
     DEFINERS = ("ci/", "kits/collective/ci/", "docs/ci-gates.md", "tests/test_generic.py", "tests/test_contract.py",
                 "GOVERNANCE.md", "skills/neon/", "skills/neon-postgres/")
     # Known debt found by the sweep (personal-data sweep report, kept outside the repo): the skill is in layer.json install_exclude and
     # must be genericised before superego opens. Ratchet: this set only shrinks; a new file fails the test.
-    DEBT = {"skills/engenharia-em-etapas/": {"vendor-gupshup"}}
+    DEBT: dict[str, set[str]] = {}
     # The only handle that may appear: the repository owner's, inside a GitHub URL (install and clone commands).
-    OWNER_URL = re.compile(r"github\.com[/:](?:" + next(p["regex"] for p in PATTERNS if p["name"] == "owner-account") + r")/(superego|psique|id-context)")
+    OWNER_URL = re.compile(r"github\.com[/:](?:" + next(p["regex"] for p in PATTERNS if p["name"].startswith("account-")) + r")/(superego|psique|id-context)\b")
 
     def tracked(self) -> list[str]:
         out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, encoding="utf-8")
@@ -125,24 +138,9 @@ class NoIdentifiersTest(unittest.TestCase):
             for n, line in names:
                 line = self.OWNER_URL.sub("", line)
                 for name, r in rx:
-                    if r.search(line) and not any(rel.startswith(d) and name in v for d, v in self.DEBT.items()):
+                    if r.search(line):
                         hits.append(f"{rel}:{n} [{name}]")
         self.assertEqual(hits, [], "person or company identifier in superego (move it to collective, ego or id):\n" + "\n".join(hits[:40]))
-
-    def test_debt_is_still_debt(self) -> None:
-        """A DEBT entry whose hits are gone must be deleted, so the ratchet tightens."""
-        for prefix, names in self.DEBT.items():
-            rx = [re.compile(p["regex"], re.I) for p in self.PATTERNS if p["name"] in names]
-            found = any(r.search(l) for rel in self.tracked() if rel.startswith(prefix)
-                        for l in (ROOT / rel).read_text(encoding="utf-8", errors="replace").splitlines() for r in rx)
-            self.assertTrue(found, f"{prefix} no longer matches {sorted(names)}: remove it from DEBT")
-
-    def test_privacy_terms_cover_the_known_identifier_classes(self) -> None:
-        """The pattern list must not shrink silently: owner, company, product, client and colleague classes stay."""
-        names = {p["name"] for p in self.PATTERNS}
-        for prefix in ("owner-", "company-", "client-", "colleague-", "product-"):
-            self.assertTrue(any(n.startswith(prefix) for n in names), f"no `{prefix}*` pattern left in ci/privacy-terms.json")
-        self.assertTrue({"owner-name", "owner-account", "owner-email"} <= names)
 
 
 if __name__ == "__main__":

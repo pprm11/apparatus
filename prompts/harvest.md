@@ -10,7 +10,7 @@ writing nothing is the expected outcome for a short question, a one-off fix or a
 - That memory folder and its `MEMORY.md`, under `{{HOME}}/.claude/projects/`. Read it before writing.
 - Other projects' memory: search with Grep over `{{HOME}}/.claude/projects/*/memory/`.
 - Skills: `{{HOME}}/.claude/skills/*/SKILL.md` (names and descriptions in the frontmatter).
-- Rules you follow, read-only: `{{HOME}}/.claude/regras-de-agente.md`, `{{HOME}}/.claude/ubiquitous-language.md`,
+- Rules you follow, read-only: `{{HOME}}/.claude/agent-rules.md`, `{{HOME}}/.claude/ubiquitous-language.md`,
   `{{HOME}}/.claude/rules/*.md`, `{{HOME}}/.claude/skills/context-ingest/SKILL.md` (memory format and what
   is worth saving).
 
@@ -22,11 +22,11 @@ writing nothing is the expected outcome for a short question, a one-off fix or a
 3. Specific: names the system, file, person or number. "Be careful with CI" is not a memory.
 
 A skill draft is worth it only when the session shows a multi-step procedure the user asked for that will
-recur (he did it before, or said it will repeat), and no existing skill covers it. At most one draft.
+recur (they did it before, or said it will repeat), and no existing skill covers it. At most one draft.
 
 ## Output (only inside `{{OUT}}/out/`; write nothing anywhere else)
 - New or updated memory: `{{OUT}}/out/memory/<project-key>/<slug>.md`, full file in the context-ingest
-  format (frontmatter with `metadata.keywords` and `type`, body in Portuguese, absolute dates, **Why:** and
+  format (frontmatter with `metadata.keywords` and `type`, body in the user's language, absolute dates, **Why:** and
   **How to apply:** for feedback/project). To update an existing memory, write the whole new version under
   the same slug.
 - For each new memory, one index line in `{{OUT}}/out/memory/<project-key>/MEMORY.add`:
@@ -34,8 +34,8 @@ recur (he did it before, or said it will repeat), and no existing skill covers i
 - Skill draft: `{{OUT}}/out/skill-drafts/<kebab-name>/SKILL.md` with `name` and a `description` that says
   when to use it, then the steps. Harness-neutral: no tool names of one harness; say "spawn a subagent",
   "the widget tool". The user approves drafts in the decision inbox.
-- Always: `{{OUT}}/out/summary.md`, one to three lines in Portuguese: what you saved and why, or
-  "nada a colher" and the reason.
+- Always: `{{OUT}}/out/summary.md`, one to three lines in the user's language: what you saved and why, or
+  "nothing to harvest" and the reason.
 
 ## Never
 Secrets, tokens, client personal data (CPF, phone, e-mail), raw conversation text longer than a short

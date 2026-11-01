@@ -1,6 +1,6 @@
 # Governance
 
-superego is the generic layer of a layered agent context. People and teams build on it, so it has to stay
+The `superego/` folder is the generic layer of a layered agent context. People and teams build on it, so it has to stay
 stable: few changes, and no change that breaks someone else's setup. This file is the policy. The surface it
 protects is defined in [docs/contract.md](docs/contract.md) and pinned by `tests/test_contract.py`.
 
@@ -8,8 +8,8 @@ protects is defined in [docs/contract.md](docs/contract.md) and pinned by `tests
 
 Only what is valid for anyone, with no edit:
 
-- tooling (`tools/`), installer and sync scripts, generic skills (`skills/`), agent rules (`global/`, `rules/`),
-  harness adapters (`harness/`), templates (`templates/`);
+- tooling (`tools/`), installer and sync scripts, generic skills (`superego/skills/`), agent rules (`superego/global/`, `superego/rules/`),
+  harness adapters (`superego/harness/`), templates (`templates/`);
 - rules whose text would read the same for a stranger on another team and another company.
 
 What does not belong here: a person's preferences, names, accounts or e-mail; a company, client, product or
@@ -17,7 +17,7 @@ colleague name; machine paths. Those go to the layer that owns them:
 
 | Content | Layer |
 |---|---|
-| Valid for anyone | superego (this repo) |
+| Valid for anyone | superego (`superego/` in this repo) |
 | Shared by one team, not by everyone | collective |
 | One company's glossary, rules and projects | ego |
 | One person's habits, plan and private notes | id |
@@ -59,7 +59,7 @@ Low churn is the default. A pull request that touches the contract or adds a rul
   (`python -I ci/contract_snapshot.py --write`) and `docs/contract.md`.
 - **A green local suite** (`python -I ci/gates.py`, which includes `tests/test_contract.py`). The result goes in
   the pull request body.
-- Always-loaded text (`global/`, `rules/`, `harness/`) stays inside the budgets of `tools/context_budget.py`.
+- Always-loaded text (`superego/global/`, `superego/rules/`, `superego/harness/`) stays inside the budgets of `tools/context_budget.py`.
 
 Maintainers decline, or redirect to a higher layer, a change that fails the first point.
 

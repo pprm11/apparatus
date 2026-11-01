@@ -1,8 +1,8 @@
 {
  "level": "id",
  "globals": [
-  "padroes-do-usuario.md",
-  "linguagem-do-usuario.md"
+  "preferences.md",
+  "personal-glossary.md"
  ],
  "rules": [],
  "dirs": [
@@ -12,5 +12,5 @@
  "sealed": [
   "pdi/evidencias"
  ],
- "glossary": "linguagem-do-usuario.md"
+ "glossary": "personal-glossary.md"
 }

@@ -361,9 +361,9 @@ def main(argv):
 
     if a.cmd == "run" and new:
         add_to_manifest(new)
-        inbox(f"Segredos novos no backup automático ({len(new)})",
-              "Caminhos adicionados ao secrets-manifest.txt e cifrados com a chave pública age:\n" + "\n".join(new),
-              ["Manter todos", "Remover alguns do manifesto (diga quais)"])
+        inbox(f"New secrets in the automatic backup ({len(new)})",
+              "Paths added to secrets-manifest.txt and encrypted with the age public key:\n" + "\n".join(new),
+              ["Keep all", "Remove some from the manifest (say which)"])
     counts, failed, removed = backup(dest, a.commit, a.push)
     for p in new:
         print(f"{'added':<10} {p}")
@@ -375,12 +375,12 @@ def main(argv):
           f"{len(removed)} removed, {len(failed)} failed")
     if a.cmd == "run":
         if failed:
-            inbox(f"Backup de segredos falhou ({len(failed)} arquivo(s))",
-                  "\n".join(f"{p}: {why}" for p, why in failed), ["Investigar agora", "Ignorar por enquanto"])
+            inbox(f"Secrets backup failed ({len(failed)} file(s))",
+                  "\n".join(f"{p}: {why}" for p, why in failed), ["Investigate now", "Ignore for now"])
         if removed:
-            inbox(f"Segredos sumiram da máquina ({len(removed)})",
-                  "Continuam no backup cifrado, nada foi apagado:\n" + "\n".join(removed),
-                  ["Manter no backup", "Tirar do manifesto"])
+            inbox(f"Secrets disappeared from the machine ({len(removed)})",
+                  "They remain in the encrypted backup, nothing was deleted:\n" + "\n".join(removed),
+                  ["Keep in the backup", "Remove from the manifest"])
     return 1 if failed else 0
 
 

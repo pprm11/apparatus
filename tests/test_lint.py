@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import lint_memory  # noqa: E402
 
 GOOD_KW = "a, b, c, d, e, f"
-SCHEMA = ("Nunca mande mensagem em nome do Alex sem pedir permissao explicita antes e sempre mostre o rascunho "
-          "completo para ele aprovar com uma palavra clara de confirmacao.")
+SCHEMA = ("Never send a message on behalf of Alex without asking explicit permission first and always show the full "
+          "draft so he can approve it with a clear word of confirmation.")
 
 
 def write(path: str, text: str) -> None:
@@ -30,7 +30,7 @@ class LintTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name
         write(os.path.join(self.root, "global", "CLAUDE.md"), SCHEMA)
-        write(os.path.join(self.root, "rules", "r.md"), "Regra curta de teste.")
+        write(os.path.join(self.root, "rules", "r.md"), "Short test rule.")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -40,7 +40,7 @@ class LintTest(unittest.TestCase):
         return lint_memory.warnings(projects, lint_memory.schema_texts(self.root))
 
     def test_clean_memory_has_no_warnings(self) -> None:
-        memory(self.root, "ok", "fato curto e unico sobre um assunto")
+        memory(self.root, "ok", "short unique fact about one subject")
         self.assertEqual(self.warn(), [])
 
     def test_keywords_outside_range(self) -> None:
@@ -57,21 +57,21 @@ class LintTest(unittest.TestCase):
         self.assertTrue(any("`P/nomod.md`: no `metadata.modified`" in w for w in self.warn()))
 
     def test_big_body(self) -> None:
-        memory(self.root, "big", "palavra " * 500)
+        memory(self.root, "big", "word " * 800)
         self.assertTrue(any("`P/big.md`: body is" in w for w in self.warn()))
 
     def test_stale_size_claims(self) -> None:
-        memory(self.root, "claim", "O AGENTS.md esta com 27,9 KB de 32 KB hoje")
+        memory(self.root, "claim", "AGENTS.md is at 27,9 KB of 32 KB today")
         memory(self.root, "claim2", "now 29,168 bytes of 32,768 bytes")
-        memory(self.root, "fine", "limite de 32 KB sem numero atual")
+        memory(self.root, "fine", "limit of 32 KB with no current number")
         got = self.warn()
-        self.assertTrue(any("`P/claim.md`" in w and "27,9 KB de 32 KB" in w for w in got))
+        self.assertTrue(any("`P/claim.md`" in w and "27,9 KB of 32 KB" in w for w in got))
         self.assertTrue(any("`P/claim2.md`" in w for w in got))
         self.assertFalse(any("`P/fine.md`" in w for w in got))
 
     def test_near_duplicate_of_schema_file(self) -> None:
-        memory(self.root, "dup", SCHEMA + " Mais uma frase propria da memoria.")
-        memory(self.root, "unique", "Texto totalmente diferente que nao repete nenhuma regra do esquema carregado sempre.")
+        memory(self.root, "dup", SCHEMA + " One more sentence of the memory's own.")
+        memory(self.root, "unique", "Entirely different text that repeats none of the rules in the always loaded schema.")
         got = self.warn()
         self.assertTrue(any("`P/dup.md`" in w and "`global/CLAUDE.md`" in w for w in got))
         self.assertFalse(any("`P/unique.md`" in w and "near-duplicate" in w for w in got))

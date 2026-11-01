@@ -37,7 +37,7 @@ BODY_WARN_BYTES = 3 * 1024
 SHINGLE = 8  # words
 DUPLICATE_RATIO = 0.30
 MIN_SHINGLES = 5  # below this a memory is too short to call a duplicate
-SCHEMA_FILES = ("CLAUDE.md", "regras-de-agente.md")
+SCHEMA_FILES = ("CLAUDE.md", "agent-rules.md", "regras-de-agente.md")  # last one: legacy name of existing installs
 SIZE_CLAIM = re.compile(
     r"(?i)(?<![\d.,])\d[\d.,]*\s*(?:KiB|KB|bytes?|B)\b\s*(?:de|of|/)\s*\d[\d.,]*\s*(?:KiB|KB|bytes?|B)\b")
 

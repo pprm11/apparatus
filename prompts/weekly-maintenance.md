@@ -13,7 +13,7 @@ schema (global instruction files). Today is {{DATE}}. Work only from the files b
 - Memory (the wiki you maintain): `{{EGO}}/memory/<project>/*.md` (the ego layer repo; superego and id memories are out of scope), each folder with a `MEMORY.md` index.
   This is a fresh copy of the ego-level files of `~/.claude/projects/<project>/memory/`; edit it here and the wrapper copies
   your changes back. Do not try to write under `~/.claude` (it is write-protected).
-- Schema, READ-ONLY: `{{HOME}}/.claude/CLAUDE.md`, `{{HOME}}/.claude/regras-de-agente.md`,
+- Schema, READ-ONLY: `{{HOME}}/.claude/CLAUDE.md`, `{{HOME}}/.claude/agent-rules.md`,
   `{{HOME}}/.claude/ubiquitous-language.md`, `{{HOME}}/.claude/rules/*.md` (may not exist),
   `{{HOME}}/.claude/harness/*.md` (one adapter per harness).
 - `{{EGO}}/proposals.md` and the last entries of `{{EGO}}/log.md`, so you do not repeat yourself.
@@ -24,27 +24,27 @@ schema (global instruction files). Today is {{DATE}}. Work only from the files b
 name: <short-kebab-case-slug>
 description: <one-line summary used for recall>
 metadata:
-  keywords: <6 to 15 terms in Portuguese and English: synonyms, acronyms, people, systems, how the user would ask>
+  keywords: <6 to 15 terms in the user's language and English: synonyms, acronyms, people, systems, how the user would ask>
   type: user | feedback | project | reference
 ---
 <the fact; feedback/project add **Why:** and **How to apply:** lines; link others with [[name]]>
 ```
 Each memory has one line in its folder's `MEMORY.md`: `- [Title](file.md) — hook`. Memory text is
-in Portuguese, like the existing files. `keywords` feed the search index (`tools/search_memory.py`);
+in the user's language, like the existing files. `keywords` feed the search index (`tools/search_memory.py`);
 the section "Memories without keywords" of `{{REPO}}/INDEX.md` lists the ones still missing.
 
 ## Tasks
 
 1. **Lint (apply directly).** Fix every problem in `lint-report.md`. Then read all memories and fix:
    duplicates inside one project (merge into one file, keep the richer text); relative dates
-   ("ontem", "semana passada") → absolute dates; facts a newer memory clearly contradicts (keep the
+   ("yesterday", "last week") → absolute dates; facts a newer memory clearly contradicts (keep the
    newer, say what changed); broken `[[links]]`; index lines that no longer match the file.
    For "older than 21 days" items, only edit if a prompt or another memory shows the fact changed.
    Add `keywords` to every memory listed under "Memories without keywords" in `INDEX.md`, and extend
    the keywords of a memory when this week's prompts asked about it with words it does not contain.
 
 2. **Compile (apply directly).** Read `.work/prompts.md`. Find durable knowledge that is not yet in
-   memory or in the schema files: corrections the user gave ("não", "refaz", "de novo"), preferences he
+   memory or in the schema files: corrections the user gave ("no", "redo it", "again"), preferences they
    repeated, decisions and their reasons, new projects or people, pointers to external resources.
    Write one memory file per fact in the folder of the project where it came from (the `## <project>`
    heading), and add its index line. Skip one-off task details and anything the repo itself records.
@@ -54,7 +54,7 @@ the section "Memories without keywords" of `{{REPO}}/INDEX.md` lists the ones st
    - a memory that applies to every project (style, reporting, tooling preferences) → proposal to move
      it to `~/.claude/rules/<topic>.md`;
    - a memory or prompt that contradicts a schema file → proposal to change the schema file;
-   - a preference the user repeated 2+ times this week that is not in `regras-de-agente.md` → proposal to add it.
+   - a preference the user repeated 2+ times this week that is not in `agent-rules.md` → proposal to add it.
    Format: `### P-{{DATE}}-<n> · <title>` then lines `Kind:`, `From:` (file or prompt date),
    `To:`, `Why:` (cite the evidence, quotes under 15 words), `Status: open`.
 
@@ -67,9 +67,9 @@ the section "Memories without keywords" of `{{REPO}}/INDEX.md` lists the ones st
    `## [{{DATE}}] weekly | lint <n> fixes · compile <n> new, <n> updated · <n> proposals`
    then one bullet per change: `- <action> <project>/<file>: <reason>`.
 
-6. **Report for the user.** Write `{{EGO}}/reports/{{DATE}}.md` in Portuguese, plain and short:
-   3–5 bullets of what changed (with counts like "4 de 42"), the open proposals with their ids and how
-   to approve ("diga 'aprova P-...' em qualquer sessão"), and how to undo ("git revert" on the ego repo,
+6. **Report for the user.** Write `{{EGO}}/reports/{{DATE}}.md` in the user's language, plain and short:
+   3–5 bullets of what changed (with counts like "4 of 42"), the open proposals with their ids and how
+   to approve ("say 'approve P-...' in any session"), and how to undo ("git revert" on the ego repo,
    then `restore.sh --from <ego repo>`). No em dashes, no filler.
 
 ## Hard rules

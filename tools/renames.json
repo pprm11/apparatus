@@ -2,16 +2,34 @@
  "_notes": {
   "about": "The old to new map of the pre-1.0 rename. tools/migrate.py reads it; CHANGELOG.md prints the same table. Add entries as a stage lands, never remove one (an install that skipped a release still needs it).",
   "repos": "GitHub repository names, owner-less: the owner of each manifest URL stays as it is. Applied to manifest `repo` URLs and printed; the repository itself is renamed or recreated by the maintainer, so `migrate.py --apply` rewrites URLs only with --repos.",
-  "files": "Paths relative to the claude home (and to a layer repo): globals, rules and dirs named in layer.json, and @imports in generated files.",
+  "files": "Paths relative to the claude home (and to a layer repo): globals, rules and dirs named in layer.json, and @imports in generated files. Every global file name is unique across layers (compose refuses two layers that ship the same name), so each layer prefixes its own.",
   "skills": "Skill folder names. Alias folders keep the old name working for one minor release.",
-  "removed_after": "The release that drops the old names (deprecation window, GOVERNANCE.md)."
+  "removed_after": "The release that drops the old names (deprecation window, GOVERNANCE.md).",
+  "retired": "Files and folders that left superego. Their content now lives in the layer named on the right; migrate.py removes the old file once that layer is active."
  },
  "repos": {
   "psique": "self",
   "id-context": "id",
   "superego": "apparatus"
  },
- "files": {},
- "skills": {},
- "removed_after": "next major"
+ "files": {
+  "regras-de-agente.md": "agent-rules.md",
+  "glossario-agente.md": "agent-glossary.md",
+  "rules/mapa-do-contexto.md": "rules/context-map.md"
+ },
+ "skills": {
+  "causa-raiz": "root-cause",
+  "code-review-critico": "critical-code-review",
+  "orquestrar-cruzado": "cross-harness-orchestration",
+  "orquestrar-sonnet-haiku": "claude-workflow-orchestration",
+  "telinhas": "inline-widgets",
+  "engenharia-em-etapas": "staged-engineering"
+ },
+ "removed_after": "next major",
+ "retired": {
+  "rules/agentes-e-sessoes.md": "persona: practices.md",
+  "rules/uso-de-ia.md": "persona: practices.md",
+  "skills/neon": "install the Neon plugin instead",
+  "skills/neon-postgres": "install the Neon plugin instead"
+ }
 }

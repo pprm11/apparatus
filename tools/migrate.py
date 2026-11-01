@@ -26,7 +26,7 @@ IMPORT = re.compile(r"^(@\S*?/)?([^/\s]+\.md)(\s*)$", re.M)
 
 def load_map(path: Path = MAP_FILE) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
-    out = {k: data.get(k, {}) for k in ("repos", "files", "skills")}
+    out = {k: data.get(k, {}) for k in ("repos", "files", "skills", "retired")}
     out["removed_after"] = data.get("removed_after", "")
     return out
 
@@ -60,9 +60,16 @@ def plan(manifest: dict, claude_home: Path, rename_map: dict) -> list[dict]:
     for old, new in rename_map["files"].items():
         if (claude_home / old).exists() and not (claude_home / new).exists():
             out.append({"kind": "file", "old": old, "new": new, "where": str(claude_home)})
+        elif (claude_home / old).exists():  # both exist: the layer already shipped the new one, the old is stale
+            out.append({"kind": "stale", "old": old, "new": new, "where": str(claude_home)})
     for old, new in rename_map["skills"].items():
         if (claude_home / "skills" / old).is_dir() and not (claude_home / "skills" / new).exists():
             out.append({"kind": "skill", "old": old, "new": new, "where": str(claude_home / "skills")})
+        elif (claude_home / "skills" / old).is_dir():
+            out.append({"kind": "stale", "old": f"skills/{old}", "new": f"skills/{new}", "where": str(claude_home)})
+    for old, moved_to in rename_map.get("retired", {}).items():
+        if (claude_home / old).exists():
+            out.append({"kind": "retired", "old": old, "new": moved_to, "where": str(claude_home)})
     return out
 
 
@@ -74,7 +81,9 @@ def rewrite_text(text: str, files: dict[str, str]) -> str:
     return IMPORT.sub(swap, text)
 
 
-def apply(manifest_path: Path, claude_home: Path, rename_map: dict, repos: bool) -> list[str]:
+def apply(manifest_path: Path, claude_home: Path, rename_map: dict, repos: bool, prune: bool = False) -> list[str]:
+    """prune=True also deletes retired files and stale duplicates: right for an install, whose files come from the
+    layer repos; wrong for an owner's own home, where the old file may hold edits the new one lacks."""
     done: list[str] = []
     names = {Path(o).name: Path(n).name for o, n in rename_map["files"].items()}
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -84,6 +93,15 @@ def apply(manifest_path: Path, claude_home: Path, rename_map: dict, repos: bool)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(Path(ch["where"]) / ch["old"]), str(target))
             done.append(f"file {ch['old']} -> {ch['new']}")
+        elif ch["kind"] in ("retired", "stale") and not prune:
+            done.append(f"kept {ch['old']} ({ch['kind']}; run with --prune to remove it)")
+        elif ch["kind"] in ("retired", "stale"):
+            target = Path(ch["where"]) / ch["old"]
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+            done.append(f"removed {ch['old']} ({ch['kind']}; now: {ch['new']})")
         elif ch["kind"] == "skill":
             shutil.move(str(Path(ch["where"]) / ch["old"]), str(Path(ch["where"]) / ch["new"]))
             done.append(f"skill {ch['old']} -> {ch['new']}")
@@ -109,9 +127,9 @@ def apply(manifest_path: Path, claude_home: Path, rename_map: dict, repos: bool)
 
 
 def print_map(rename_map: dict, stream=sys.stdout) -> None:
-    for kind in ("repos", "files", "skills"):
-        for old, new in rename_map[kind].items():
-            print(f"{kind[:-1]:6} {old} -> {new}", file=stream)
+    for kind in ("repos", "files", "skills", "retired"):
+        for old, new in rename_map.get(kind, {}).items():
+            print(f"{kind[:-1] if kind != 'retired' else 'retired':7} {old} -> {new}", file=stream)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -121,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--claude-home", default=os.path.expanduser("~/.claude"))
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--repos", action="store_true", help="with --apply: also rewrite manifest repo URLs")
+    ap.add_argument("--prune", action="store_true", help="with --apply: delete retired files and stale duplicates")
     args = ap.parse_args(argv)
     manifest = Path(os.path.expanduser(args.manifest or roots.default_manifest(args.root)))
     home = Path(os.path.expanduser(args.claude_home))
@@ -132,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     for ch in pending:
         print(f"  {ch['kind']} {ch['old']} -> {ch['new']} ({ch['where']})")
     if args.apply:
-        for line in apply(manifest, home, rename_map, args.repos):
+        for line in apply(manifest, home, rename_map, args.repos, args.prune):
             print("applied:", line)
     return 0
 

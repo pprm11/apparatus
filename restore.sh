@@ -8,6 +8,8 @@ shopt -s nullglob
 
 DST="${CLAUDE_HOME:-$HOME/.claude}"
 TOOLS="$(cd "$(dirname "$0")" && pwd)/tools"
+# shellcheck source=lib.sh
+. "$TOOLS/../lib.sh"
 SRC=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -18,6 +20,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$SRC" ] && [ -d "$SRC" ] || { echo "usage: restore.sh --from <layer repo>" >&2; exit 1; }
+# The superego layer lives in <apparatus>/superego; a path to the apparatus checkout still works.
+[ ! -f "$SRC/layer.json" ] && [ -f "$SRC/superego/layer.json" ] && SRC="$SRC/superego"
 mkdir -p "$DST/skills" "$DST/projects" "$DST/plugins" "$DST/rules"
 git -C "$SRC" config core.safecrlf false 2>/dev/null || true
 
@@ -36,9 +40,7 @@ done
 [ -d "$SRC/skills" ] && copy "$SRC/skills" "$DST/skills"
 [ -d "$SRC/rules" ] && copy "$SRC/rules" "$DST/rules"
 for d in "$SRC"/memory/*/; do
-  proj="$(basename "$d")"
-  # a folder shortened by layers.py (long project key) keeps the original key in .project-key
-  [ -f "$d/.project-key" ] && proj="$(tr -d '\r\n' < "$d/.project-key")"
+  proj="$(memory_project_key "$d")"
   mkdir -p "$DST/projects/$proj/memory"
   copy "$d" "$DST/projects/$proj/memory"
   rm -f "$DST/projects/$proj/memory/.project-key"

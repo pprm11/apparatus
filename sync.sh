@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Route the agent context in ~/.claude (source of truth) into the layer repos of the psique manifest
-# (superego, ego-<empresa>, id; tools/layers.py), then render it for Codex (tools/render_harness.py).
+# (superego, ego-<company>, id; tools/layers.py), then render it for Codex (tools/render_harness.py).
 # Usage: ./sync.sh [--manifest <root>/psique/manifest.json]            -> copy only
 #        ./sync.sh --push [--manifest M]  -> copy, commit (up to 3 Conventional Commits) and push each layer
 # Env: PUBLIC_MIRROR=1 also builds (and with PUBLIC_MIRROR_REMOTE publishes) the public mirror, docs/public-mirror.md.
@@ -69,8 +69,9 @@ for l in "${LAYERS[@]}"; do
   done
   for d in "$lp"/memory/*/; do
     [ -d "$d" ] || continue
-    if has_files "$d" && ! has_files "$SRC/projects/$(basename "$d")/memory"; then
-      abort "$SRC/projects/$(basename "$d")/memory is missing or empty but $lp has it; nothing was changed"
+    proj="$(memory_project_key "$d")"
+    if has_files "$d" && ! has_files "$SRC/projects/$proj/memory"; then
+      abort "$SRC/projects/$proj/memory is missing or empty but $lp has it; nothing was changed"
     fi
   done
 done
@@ -102,9 +103,9 @@ for l in "${LAYERS[@]}"; do
 done
 unl="$(python -I "$DST/tools/layers.py" unlabeled --manifest "$MANIFEST" --claude-home "$SRC" | wc -l)"
 if [ "$unl" -gt 0 ]; then
-  title="Memórias ou skills sem nível (level:) em ~/.claude"
+  title="Memories or skills without a level (level:) in ~/.claude"
   if ! python -I "$DST/tools/decisions.py" list 2>/dev/null | grep -qF -- "$title"; then
-    python -I "$DST/tools/decisions.py" add "$title" --level superego --source sync       --detail "$unl arquivo(s) sem level: no frontmatter foram para o nível padrão (ego). Rode tools/layers.py unlabeled." >/dev/null || true
+    python -I "$DST/tools/decisions.py" add "$title" --level superego --source sync       --detail "$unl file(s) without level: in the frontmatter went to the default level (ego). Run tools/layers.py unlabeled." >/dev/null || true
   fi
 fi
 
@@ -135,6 +136,29 @@ echo "$render"
 RENDERED=0
 render="${render//$'\r'/}"
 if printf '%s\n' "$render" | grep -q '^write .*AGENTS\.md ([0-9]* bytes)$'; then RENDERED=1; fi
+# Byte band (tools/context_budget.py): a layer at 90% or more of its budget keeps its always-loaded files
+# (global/*, rules/*; harness/* for the adapter; also under superego/ in the nested layout) out of the commit below, hour after hour, until the layer is
+# back under the band (a trim that lands at 95% is still held: the gate is the band, not the direction), and
+# gets one open decision item with the cut candidates. Memory, skills and the rest of the layer still sync.
+# When the check itself fails, the gate is off for this run and the log says so.
+if band_out="$(python -I "$DST/tools/context_budget.py" --list-band --manifest "$MANIFEST" --claude-home "$SRC" 2>&1)"; then
+  BAND_LAYERS=" $(printf '%s' "$band_out" | tr -d '\r' | tr '\n' ' ') "
+else
+  BAND_LAYERS="  "
+  echo "warning: budget band check failed, gate off this run: $(printf '%s\n' "$band_out" | tr -d '\r' | tail -1)"
+fi
+if [ "${BAND_LAYERS// /}" != "" ]; then
+  echo "budget band:${BAND_LAYERS}(always-loaded files held back from the commit until trimmed; see the decision inbox)"
+  inbox_out="$(python -I "$DST/tools/context_budget.py" --inbox --manifest "$MANIFEST" --claude-home "$SRC" 2>&1)" \
+    || echo "inbox add failed: $(printf '%s\n' "$inbox_out" | tr -d '\r' | tail -1)"
+fi
+held_back() { # level, repo path -> 0 when the path is an always-loaded file of a layer in the band
+  case "$2" in
+    global/*|rules/*|superego/global/*|superego/rules/*) [[ "$BAND_LAYERS" == *" $1 "* ]] ;;
+    harness/*|superego/harness/*) [[ "$BAND_LAYERS" == *" adapter "* ]] ;;
+    *) return 1 ;;
+  esac
+}
 echo "Synced from $SRC ($(grep -o '[0-9]* problems' "$DST/lint-report.md" | awk '{ n += $1 } END { if (NR) print n " problems"; else print "lint n/a" }'))"
 
 COMMITTED=0
@@ -154,7 +178,8 @@ ensure_excludes() { # repo path
   done
 }
 
-sync_repo() { # path: stage, guard, commit groups, push
+sync_repo() { # path, level: stage, guard, commit groups, push
+  local level="${2:-}"
   cd "$1" || return 1
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "$1 is not a git repo, skipped"; return 0; }
   ensure_excludes "$1"
@@ -176,7 +201,7 @@ sync_repo() { # path: stage, guard, commit groups, push
     if [ "$(wc -c < "$p")" -gt 1048576 ]; then
       git reset -q -- "$p"
       echo "blocked: $p is over 1 MB and was not committed"
-      title="Arquivo grande barrado no sync: $p"
+      title="Large file blocked from sync: $p"
       if ! python -I "$DST/tools/decisions.py" list 2>/dev/null | grep -qF -- "$title"; then
         python -I "$DST/tools/decisions.py" add "$title" --level superego --source sync >/dev/null || echo "inbox add failed"
       fi
@@ -206,8 +231,9 @@ sync_repo() { # path: stage, guard, commit groups, push
   if [ "${#staged[@]}" -eq 0 ]; then
     echo "No changes."
   else
-    mem=(); ctx=(); state=(); misc=()
+    mem=(); ctx=(); state=(); misc=(); held=()
     for p in "${staged[@]}"; do
+      if held_back "$level" "$p"; then held+=("$p"); continue; fi
       case "$p" in
         memory/*) mem+=("$p") ;;
         skills/*|rules/*|global/*|harness/*|scripts/*|plans/*|pdi/*|maps/*) ctx+=("$p") ;;
@@ -216,6 +242,9 @@ sync_repo() { # path: stage, guard, commit groups, push
       esac
     done
     git reset -q
+    if [ "${#held[@]}" -gt 0 ]; then
+      echo "held back (budget band, $level): ${held[*]}"
+    fi
     if [ "${#mem[@]}" -gt 0 ]; then
       projs="$(printf '%s\n' "${mem[@]}" | cut -d/ -f2 | sed -E 's/^[A-Za-z]--Users-[^-]+-//' | short_list)"
       commit_group "chore(memory): sync ${#mem[@]} memories ($projs)" "${mem[@]}"
@@ -246,7 +275,7 @@ sync_repo() { # path: stage, guard, commit groups, push
 if [ "$PUSH" = 1 ]; then
   for l in "${LAYERS[@]}"; do
     echo "== layer ${l%%$'	'*}: ${l#*$'	'}"
-    sync_repo "${l#*$'	'}" || abort "sync of ${l#*$'	'} failed"
+    sync_repo "${l#*$'	'}" "${l%%$'	'*}" || abort "sync of ${l#*$'	'} failed"
   done
   cd "$DST"
   # Public mirror of this repo (HEAD, no history). Off unless PUBLIC_MIRROR=1; a deny hit refuses it.

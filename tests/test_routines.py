@@ -165,6 +165,22 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(len(set(ids)), 40)
         self.assertFalse(os.path.exists(decisions.store_path(self.home) + ".lock"))
 
+    def test_lock_retries_when_windows_reports_a_deleting_lock_as_permission_denied(self) -> None:
+        # Windows: O_EXCL on a lock another thread is removing raises PermissionError, not FileExistsError.
+        real_open, calls = os.open, []
+
+        def flaky_open(path, flags, *args, **kwargs):
+            if str(path).endswith(".lock") and len(calls) < 3:
+                calls.append(path)
+                raise PermissionError(13, "Permission denied", path)
+            return real_open(path, flags, *args, **kwargs)
+
+        with mock.patch.object(os, "open", flaky_open):
+            with decisions.locked(self.home):
+                pass
+        self.assertEqual(len(calls), 3)
+        self.assertFalse(os.path.exists(decisions.store_path(self.home) + ".lock"))
+
     def test_stale_lock_is_cleaned_and_a_busy_one_times_out(self) -> None:
         lock = decisions.store_path(self.home) + ".lock"
         write(lock, "")
@@ -182,7 +198,7 @@ class InboxTest(unittest.TestCase):
     def test_html_follows_the_artifact_contract(self) -> None:
         decisions.scan(self.home, [session("waiting", "w1")], NOW)
         page = decisions.render_html(decisions.load(self.home))
-        self.assertTrue(page.startswith("<title>Caixa de decisões</title>"))
+        self.assertTrue(page.startswith("<title>Decision inbox</title>"))
         for banned in ("<!doctype", "<html", "<body"):
             self.assertNotIn(banned, page.lower())
         self.assertIn('prefers-color-scheme:dark', page)
@@ -247,7 +263,7 @@ class HarvestTest(unittest.TestCase):
     def test_digest_redacts_and_caps(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "t.jsonl")
-            lines = [{"type": "user", "message": {"content": "token: ghp_ABCDEFGHIJKLMNOPQRSTUVWX1234 e roda"}},
+            lines = [{"type": "user", "message": {"content": "token: ghp_ABCDEFGHIJKLMNOPQRSTUVWX1234 and run"}},
                      {"type": "assistant", "message": {"content": [{"type": "text", "text": "x" * 5000}]}}]
             write(path, "\n".join(json.dumps(x) for x in lines))
             s = agent_sessions.Session("claude", "s", "T", "C:\\Codes\\x", "archived", NOW, path)

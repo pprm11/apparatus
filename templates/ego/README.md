@@ -8,14 +8,14 @@ this template; leaving a company means archiving or deleting this repo, the othe
 
 Start a new one:
 
-1. Copy this folder to a new repo, for example `~/Codes/ego-acme`, and run `git init`.
+1. Copy this folder to a new repo, for example `<your-folder>/ego-acme`, and run `git init`.
 2. Rename `global/glossario-empresa.md` to `glossario-<company>.md` and `global/regras-empresa.md` to
    `regras-<company>.md` (lowercase, no spaces), and replace `<company>` in `layer.json`: `name`, and the two
    names in `globals`. Add `rules`, `dirs` (for example `maps`, `plans`) and `files` as the company needs them.
 3. Add the repo to `psique/manifest.json`, after `superego` and before `id`:
-   `{"level": "ego", "name": "<company>", "path": "~/Codes/ego-acme", "repo": "git@github.com:<user>/ego-acme.git", "active": true}`.
+   `{"level": "ego", "name": "<company>", "path": "<your-folder>/ego-acme", "repo": "git@github.com:<user>/ego-acme.git", "active": true}`.
    Keep only one ego layer active at a time, since memories without `level:` go to the active ego.
-4. Rename `memory/chave-do-projeto/` to the key of a real project (the project path with `:`, `\` and `/`
+4. Rename `memory/project-key/` to the key of a real project (the project path with `:`, `\` and `/`
    replaced by `-`) and keep its `MEMORY.md` as the index. Put the glossary and rules files in `~/.claude` under the same names, label memories and skills with
    `level: ego` in their frontmatter, run `superego/sync.sh --push`, then `tools/compose.py` to regenerate
    `~/.claude/CLAUDE.md`.

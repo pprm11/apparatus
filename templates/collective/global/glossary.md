@@ -1,22 +1,22 @@
-# Glossário do time (nível collective)
+# Team glossary (collective level)
 
-Versão: v0.1, DD/MM/AAAA. Termos que o time inteiro usa da mesma forma. Termos gerais de agente ficam no
-superego; os de uma empresa no ego de cada pessoa; os de uma pessoa no id dela.
+Version: v0.1, YYYY-MM-DD. Terms the whole team uses the same way. General agent terms live in
+superego; a company's terms live in each person's ego; a person's terms live in their id.
 
-## Colisões (mesma palavra, coisas diferentes)
+## Collisions (same word, different things)
 
-| Palavra | Sentidos | Termo padrão |
+| Word | Senses | Standard term |
 |---|---|---|
-| regra | regra de negócio do produto · regra de engenharia (CI, revisão) | **regra de negócio** · **regra de engenharia** |
+| rule | product business rule · engineering rule (CI, review) | **business rule** · **engineering rule** |
 
-## Termos padrão
+## Standard terms
 
-### Produto
-- **Plataforma X**: o produto principal do time (exemplo fictício; troque pelos seus).
+### Product
+- **Platform X**: the team's main product (fictional example; replace with yours).
 
-### Ambientes, git e entrega
-- Ambientes **dev / HML / PRD**; branches `dev` / `hml` / `main` (exemplo).
-- **promoção**: merge da PR entre branches, mesma imagem, sem rebuild (exemplo).
+### Environments, git and delivery
+- Environments **dev / staging / prod**; branches `dev` / `staging` / `main` (example).
+- **promotion**: merging the PR between branches, same image, no rebuild (example).
 
-## Como interpretar pedidos
-- **double check**: pedido de uma segunda leitura, sem refazer o trabalho (exemplo).
+## How to read requests
+- **double check**: a request for a second reading, without redoing the work (example).

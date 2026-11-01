@@ -133,12 +133,12 @@ class CollectiveStepTest(V2):
 
     def test_two_companies_never_mix(self):
         y_coll = make_shared(self.remote, "owner", "collective-teamy", {
-            "level": "collective", "name": "teamy", "mode": "readonly", "globals": ["glossary.md"], "rules": [],
-            "dirs": [], "files": [], "company": "teamy"}, {"global/glossary.md": "# Glossary\n\n- **only-y**: y.\n"})
+            "level": "collective", "name": "teamy", "mode": "readonly", "globals": ["team-glossary.md"], "rules": [],
+            "dirs": [], "files": [], "company": "teamy"}, {"global/team-glossary.md": "# Glossary\n\n- **only-y**: y.\n"})
         argv = self.argv("--layer", f"collective:teamy={y_coll}", jobs="skip") + ["--vault", "skip"]
         self.assertEqual(self.run_cli(argv), 0, "\n".join(self.lines))
         default = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
-        self.assertNotIn("glossary.md", default, "the default home loads no company layer when there are two")
+        self.assertNotIn("team-glossary.md", default, "the default home loads no company layer when there are two")
         x_home, y_home = self.home / ".agent-homes" / "teamx", self.home / ".agent-homes" / "teamy"
         self.assertIn("term-a", (x_home / "AGENTS.md").read_text(encoding="utf-8"))
         self.assertNotIn("only-y", (x_home / "AGENTS.md").read_text(encoding="utf-8"))
@@ -166,14 +166,14 @@ class VaultStepTest(V2):
         creates = sum(c[:3] == ["bw", "create", "item"] for c in FakeTools.calls)
         self.assertEqual(self.run_cli(self.argv_vault()), 0)
         self.assertEqual(sum(c[:3] == ["bw", "create", "item"] for c in FakeTools.calls), creates)
-        self.assertTrue(any("reaproveitada" in l for l in self.lines))
+        self.assertTrue(any("reused" in l for l in self.lines))
 
     def test_locked_vault_is_skipped_not_fatal(self):
         self.env.pop("BW_SESSION")
         self.ctx.sh = FakeTools(dict(self.env))
         self.assertEqual(self.run_cli(self.argv_vault()), 0, "\n".join(self.lines))
         self.assertNotIn("age-identity", FakeTools.notes)
-        self.assertTrue(any("bloqueado" in l for l in self.lines))
+        self.assertTrue(any("locked" in l for l in self.lines))
 
 
 class JobsTest2(V2):
@@ -188,24 +188,24 @@ class JobsTest2(V2):
     def test_jobs_commands_and_initial_sync(self):
         self.assertEqual(self.run_cli(self.argv(jobs="apply") + ["--vault", "skip"]), 0, "\n".join(self.lines))
         self.assertEqual(FakeBackend.installed, {"superego-testperson-update"})
-        self.assertTrue(any("sincronização inicial" in l for l in self.lines), self.lines)
+        self.assertTrue(any("initial sync" in l for l in self.lines), self.lines)
         self.lines.clear()
         self.assertEqual(self.run_cli(["jobs", "status"]), 0)
-        self.assertTrue(any(l.startswith("update") and "registrado" in l for l in self.lines), self.lines)
-        self.assertTrue(any(l.startswith("secrets") and "desligado" in l for l in self.lines), self.lines)
+        self.assertTrue(any(l.startswith("update") and "registered" in l for l in self.lines), self.lines)
+        self.assertTrue(any(l.startswith("secrets") and "disabled" in l for l in self.lines), self.lines)
         self.assertEqual(self.run_cli(["jobs", "enable", "secrets"]), 0, "\n".join(self.lines))
         self.assertIn("superego-testperson-secrets", FakeBackend.installed)
         self.assertEqual(self.run_cli(["jobs", "disable", "secrets"]), 0)
         self.assertNotIn("superego-testperson-secrets", FakeBackend.installed)
         self.assertEqual(self.run_cli(["jobs", "enable", "nope"]), 1)
         self.assertEqual(self.run_cli(["doctor"]), 0)
-        self.assertTrue(any("job-update" in l and "registrado" in l for l in self.lines), self.lines)
+        self.assertTrue(any("job-update" in l and "registered" in l for l in self.lines), self.lines)
 
 
 class UninstallTest(V2):
     def setUp(self):
         super().setUp()
-        (self.home / ".claude").mkdir()
+        (self.home / ".claude").mkdir(exist_ok=True)  # the shared fixture already writes privacy-terms.local.json here
         (self.home / ".claude" / "CLAUDE.md").write_text("my own rules\n", encoding="utf-8")
         (self.home / ".claude" / "settings.json").write_text('{"theme":"dark"}\n', encoding="utf-8")
         (self.home / "notes.txt").write_text("mine\n", encoding="utf-8")
@@ -231,11 +231,11 @@ class UninstallTest(V2):
         self.lines.clear()
         self.assertEqual(self.run_cli(["uninstall", "--dry-run"]), 0)
         self.assertEqual(self.tree(), snap)
-        self.assertTrue(any("removeria" in l for l in self.lines))
+        self.assertTrue(any("would remove" in l for l in self.lines))
         self.assertEqual(self.run_cli(["uninstall"]), 0)
         self.lines.clear()
         self.assertEqual(self.run_cli(["uninstall"]), 0)
-        self.assertTrue(any("nada para remover" in l for l in self.lines), self.lines)
+        self.assertTrue(any("nothing to remove" in l for l in self.lines), self.lines)
         self.assertEqual(self.tree(), self.before)
 
     def test_unpushed_work_in_the_own_clone_is_kept(self):
@@ -243,7 +243,7 @@ class UninstallTest(V2):
         (self.home / "Codes" / "id-context" / "draft.md").write_text("only here\n", encoding="utf-8")
         self.assertEqual(self.run_cli(["uninstall"]), 0)
         self.assertTrue((self.home / "Codes" / "id-context" / "draft.md").is_file())
-        self.assertTrue(any("mantido" in l for l in self.lines), self.lines)
+        self.assertTrue(any("kept" in l for l in self.lines), self.lines)
 
     def test_remote_delete_needs_both_confirmations(self):
         self.install()
@@ -281,7 +281,7 @@ class RestoreTest(V2):
         rc = self.run_cli(["restore", "--github", me, "--git-host", f"local:{self.remote}", "--jobs", "apply", "--yes"])
         self.assertEqual(rc, 0, "\n".join(self.lines))
         claude = self.home / ".claude"
-        self.assertTrue((claude / "me.md").is_file() and (claude / "glossary.md").is_file())
+        self.assertTrue((claude / "me.md").is_file() and (claude / "agent-glossary.md").is_file())
         self.assertIn("my preference", (self.home / ".codex" / "AGENTS.md").read_text(encoding="utf-8"))
         self.assertTrue((claude / "unsealed.txt").is_file(), chr(10).join(self.lines))
         self.assertTrue((claude / "unsealed.txt").read_text(encoding="utf-8").startswith("key bytes:"))

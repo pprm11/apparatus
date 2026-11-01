@@ -29,11 +29,11 @@ class LayerSandbox(unittest.TestCase):
         self.home = os.path.join(self.tmp, "claude")
         self.dirs = {lvl: os.path.join(self.tmp, lvl) for lvl in ("superego", "ego", "id")}
         configs = {
-            "superego": {"level": "superego", "globals": ["regras-de-agente.md"], "rules": ["mapa.md"],
+            "superego": {"level": "superego", "globals": ["agent-rules.md"], "rules": ["map.md"],
                          "dirs": ["harness"], "files": []},
-            "ego": {"level": "ego", "name": "test", "globals": ["glossario-test.md", "settings.json"],
+            "ego": {"level": "ego", "name": "test", "globals": ["glossary-test.md", "settings.json"],
                     "rules": [], "dirs": ["plans"], "files": []},
-            "id": {"level": "id", "globals": ["padroes.md"], "rules": [], "dirs": [], "files": []},
+            "id": {"level": "id", "globals": ["patterns.md"], "rules": [], "dirs": [], "files": []},
         }
         for lvl, d in self.dirs.items():
             write(os.path.join(d, "layer.json"), json.dumps(configs[lvl]))
@@ -113,19 +113,19 @@ class LayersExportTest(LayerSandbox):
     def test_export_writes_each_layer_from_its_config_and_level(self):
         self.memory("p", "a", "superego")
         self.memory("p", "b")
-        write(os.path.join(self.home, "regras-de-agente.md"), "general\n")
-        write(os.path.join(self.home, "glossario-test.md"), "glossary\n")
-        write(os.path.join(self.home, "rules", "mapa.md"), "map\n")
+        write(os.path.join(self.home, "agent-rules.md"), "general\n")
+        write(os.path.join(self.home, "glossary-test.md"), "glossary\n")
+        write(os.path.join(self.home, "rules", "map.md"), "map\n")
         write(os.path.join(self.home, "harness", "claude.md"), "adapter\n")
         write(os.path.join(self.home, "plans", "plan.md"), "plan\n")
         for lvl in ("superego", "ego", "id"):
             layers.export(self.man, self.home, lvl)
         self.assertTrue(self.exists("superego", "memory", "p", "a.md"))
-        self.assertTrue(self.exists("superego", "global", "regras-de-agente.md"))
-        self.assertTrue(self.exists("superego", "rules", "mapa.md"))
+        self.assertTrue(self.exists("superego", "global", "agent-rules.md"))
+        self.assertTrue(self.exists("superego", "rules", "map.md"))
         self.assertTrue(self.exists("superego", "harness", "claude.md"))
         self.assertTrue(self.exists("ego", "memory", "p", "b.md"))
-        self.assertTrue(self.exists("ego", "global", "glossario-test.md"))
+        self.assertTrue(self.exists("ego", "global", "glossary-test.md"))
         self.assertTrue(self.exists("ego", "plans", "plan.md"))
         self.assertFalse(self.exists("ego", "memory", "p", "a.md"))
         self.assertFalse(self.exists("id", "memory"))
@@ -184,31 +184,31 @@ class LayersExportTest(LayerSandbox):
 
 class ComposeTest(LayerSandbox):
     def test_root_claude_md_lists_each_layers_md_globals_in_manifest_order(self):
-        for name in ("regras-de-agente.md", "glossario-test.md", "settings.json", "padroes.md"):
+        for name in ("agent-rules.md", "glossary-test.md", "settings.json", "patterns.md"):
             write(os.path.join(self.home, name), "x\n")
         text = compose.root_claude_md(self.man, self.home)
-        order = [text.index(s) for s in ("## Regras gerais (superego)", "@~/.claude/regras-de-agente.md",
-                                         "## Empresa (ego)", "@~/.claude/glossario-test.md",
-                                         "## Usuário (id)", "@~/.claude/padroes.md", "@~/.claude/harness/claude.md")]
+        order = [text.index(s) for s in ("## General rules (superego)", "@~/.claude/agent-rules.md",
+                                         "## Company (ego)", "@~/.claude/glossary-test.md",
+                                         "## User (id)", "@~/.claude/patterns.md", "@~/.claude/harness/claude.md")]
         self.assertEqual(order, sorted(order))
         self.assertNotIn("settings.json", text)  # only .md globals are imported
 
     def test_layer_without_present_globals_gets_no_section(self):
-        write(os.path.join(self.home, "padroes.md"), "x\n")
+        write(os.path.join(self.home, "patterns.md"), "x\n")
         text = compose.root_claude_md(self.man, self.home)
-        self.assertNotIn("## Regras gerais (superego)", text)
-        self.assertNotIn("## Empresa (ego)", text)
-        self.assertIn("## Usuário (id)", text)
+        self.assertNotIn("## General rules (superego)", text)
+        self.assertNotIn("## Company (ego)", text)
+        self.assertIn("## User (id)", text)
 
     def test_inactive_layer_is_left_out(self):
-        write(os.path.join(self.home, "glossario-test.md"), "x\n")
+        write(os.path.join(self.home, "glossary-test.md"), "x\n")
         self.man["layers"][1]["active"] = False
-        self.assertNotIn("glossario-test.md", compose.root_claude_md(self.man, self.home))
+        self.assertNotIn("glossary-test.md", compose.root_claude_md(self.man, self.home))
 
     def test_missing_index_lines_are_found_and_listed_ones_are_not(self):
         self.memory("p", "listed")
         self.memory("p", "unlisted", body="b")
-        write(os.path.join(self.home, "projects", "p", "memory", "MEMORY.md"), "# Memória\n\n- [listed](listed.md) — d\n")
+        write(os.path.join(self.home, "projects", "p", "memory", "MEMORY.md"), "# Memory\n\n- [listed](listed.md) — d\n")
         out = compose.missing_index_lines(self.home)
         idx = os.path.join(self.home, "projects", "p", "memory", "MEMORY.md")
         self.assertEqual(list(out), [idx])
@@ -217,7 +217,7 @@ class ComposeTest(LayerSandbox):
 
     def test_main_appends_index_lines_and_writes_claude_md(self):
         self.memory("p", "unlisted")
-        write(os.path.join(self.home, "padroes.md"), "x\n")
+        write(os.path.join(self.home, "patterns.md"), "x\n")
         codex = os.path.join(self.tmp, "codex")
         base = [sys.executable, "-I", os.path.join(ROOT, "tools", "compose.py"), "--manifest", self.manifest,
                 "--claude-home", self.home, "--codex-home", codex]
@@ -226,7 +226,7 @@ class ComposeTest(LayerSandbox):
         with open(os.path.join(self.home, "projects", "p", "memory", "MEMORY.md"), encoding="utf-8") as fh:
             self.assertIn("(unlisted.md)", fh.read())
         with open(os.path.join(self.home, "CLAUDE.md"), encoding="utf-8") as fh:
-            self.assertIn("@~/.claude/padroes.md", fh.read())
+            self.assertIn("@~/.claude/patterns.md", fh.read())
         again = subprocess.run(base, capture_output=True, text=True, encoding="utf-8")
         self.assertNotIn("index ", again.stdout)  # second run adds no index lines
 
@@ -235,11 +235,12 @@ class ComposeTest(LayerSandbox):
 class RestoreFromLayerTest(LayerSandbox):
     def test_restore_from_a_layer_copies_its_files_into_claude_home(self):
         ego = self.dirs["ego"]
-        write(os.path.join(ego, "global", "glossario-test.md"), "glossary\n")
+        write(os.path.join(ego, "global", "glossary-test.md"), "glossary\n")
         write(os.path.join(ego, "skills", "s", "SKILL.md"), skill_text("s"))
         write(os.path.join(ego, "memory", "p", "a.md"), memory_text("a"))
         write(os.path.join(ego, "plans", "plan.md"), "plan\n")
         shutil.copy(os.path.join(ROOT, "restore.sh"), os.path.join(self.tmp, "restore.sh"))
+        shutil.copy(os.path.join(ROOT, "lib.sh"), os.path.join(self.tmp, "lib.sh"))
         os.makedirs(os.path.join(self.tmp, "tools"))
         for f in os.listdir(os.path.join(ROOT, "tools")):
             if f.endswith(".py"):
@@ -251,7 +252,7 @@ class RestoreFromLayerTest(LayerSandbox):
                             "--claude-home", posix(target)], capture_output=True, text=True, encoding="utf-8",
                            env=env, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue(os.path.isfile(os.path.join(target, "glossario-test.md")))
+        self.assertTrue(os.path.isfile(os.path.join(target, "glossary-test.md")))
         self.assertTrue(os.path.isfile(os.path.join(target, "skills", "s", "SKILL.md")))
         self.assertTrue(os.path.isfile(os.path.join(target, "projects", "p", "memory", "a.md")))
         self.assertTrue(os.path.isfile(os.path.join(target, "plans", "plan.md")))  # dirs of layer.json
@@ -268,7 +269,7 @@ class ReadonlyLayerTest(LayerSandbox):
         coll = os.path.join(self.tmp, "collective")
         self.dirs["collective"] = coll
         write(os.path.join(coll, "layer.json"), json.dumps({
-            "level": "collective", "mode": "readonly", "globals": ["collective-glossario.md"],
+            "level": "collective", "mode": "readonly", "globals": ["collective-glossary.md"],
             "rules": ["collective-engineering.md"], "dirs": [], "files": []}))
         entry = {"level": "collective", "path": posix(coll), "active": True, "mode": "readonly"}
         man = layers.read_json(self.manifest)
@@ -277,24 +278,24 @@ class ReadonlyLayerTest(LayerSandbox):
         self.man = layers.load_manifest(self.manifest)
 
     def test_compose_puts_the_collective_between_superego_and_ego(self):
-        write(os.path.join(self.home, "regras-de-agente.md"), "r\n")
-        write(os.path.join(self.home, "collective-glossario.md"), "c\n")
-        write(os.path.join(self.home, "glossario-test.md"), "g\n")
+        write(os.path.join(self.home, "agent-rules.md"), "r\n")
+        write(os.path.join(self.home, "collective-glossary.md"), "c\n")
+        write(os.path.join(self.home, "glossary-test.md"), "g\n")
         text = compose.root_claude_md(self.man, self.home)
-        self.assertLess(text.index("regras-de-agente.md"), text.index("collective-glossario.md"))
-        self.assertLess(text.index("collective-glossario.md"), text.index("glossario-test.md"))
-        self.assertIn("## Time (collective)", text)
+        self.assertLess(text.index("agent-rules.md"), text.index("collective-glossary.md"))
+        self.assertLess(text.index("collective-glossary.md"), text.index("glossary-test.md"))
+        self.assertIn("## Team (collective)", text)
 
     def test_export_all_skips_the_readonly_layer_and_never_writes_into_it(self):
-        write(os.path.join(self.home, "collective-glossario.md"), "edited locally\n")
-        write(os.path.join(self.dirs["collective"], "global", "collective-glossario.md"), "shared\n")
+        write(os.path.join(self.home, "collective-glossary.md"), "edited locally\n")
+        write(os.path.join(self.dirs["collective"], "global", "collective-glossary.md"), "shared\n")
         write(os.path.join(self.dirs["collective"], "skills", "collective-x", "SKILL.md"), skill_text("collective-x", "collective"))
         self.assertEqual([l["level"] for l in layers.writable_layers(self.man)], ["superego", "ego", "id"])
         with self.assertRaises(SystemExit):
             layers.export(self.man, self.home, "collective")
         for lvl in ("superego", "ego", "id"):
             layers.export(self.man, self.home, lvl)
-        with open(os.path.join(self.dirs["collective"], "global", "collective-glossario.md"), encoding="utf-8") as fh:
+        with open(os.path.join(self.dirs["collective"], "global", "collective-glossary.md"), encoding="utf-8") as fh:
             self.assertEqual(fh.read(), "shared\n")
         self.assertTrue(self.exists("collective", "skills", "collective-x", "SKILL.md"))
 
@@ -431,7 +432,7 @@ class SealedFlagTest(LayerSandbox):
         self.flagged("P", "me", "---\nlevel: id\nsealed: true\n---\nx\n")
         self.memory("P", "open", "id")
         write(os.path.join(self.home, "projects", "P", "memory", "MEMORY.md"),
-              "# Memória\n- [Open note](open.md) — public hook\n- [Private diagnosis](me.md) — private hook\n")
+              "# Memory\n- [Open note](open.md) — public hook\n- [Private diagnosis](me.md) — private hook\n")
         layers.export(self.man, self.home, "id")
         with open(os.path.join(self.dirs["id"], "memory", "P", "MEMORY.md"), encoding="utf-8") as fh:
             index = fh.read()
@@ -443,7 +444,7 @@ class SealedFlagTest(LayerSandbox):
     def test_a_key_whose_only_memories_are_flagged_gets_no_index_in_the_repo(self):
         # Without a level the flagged memory falls to the default layer (the shared ego): nothing of it may land there.
         self.flagged("Q", "me", "---\nsealed: true\n---\nx\n")
-        index = "# Memória\n- [Private](me.md) — hook\n"
+        index = "# Memory\n- [Private](me.md) — hook\n"
         write(os.path.join(self.home, "projects", "Q", "memory", "MEMORY.md"), index)
         write(os.path.join(self.dirs["ego"], "memory", "Q", "MEMORY.md"), index)
         layers.export(self.man, self.home, "ego")

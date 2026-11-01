@@ -279,8 +279,8 @@ class RegressionWithoutCompanyTest(CompanySandbox):
         for f in ("rules-general.md", "glossary-alpha.md", "me.md"):
             write(os.path.join(home, f), "x\n")
         man = layers.load_manifest(self.manifest)
-        expected = (compose.HEADER + "\n## Regras gerais (superego)\n@~/.claude/rules-general.md\n\n"
-                    "## Empresa (ego)\n@~/.claude/glossary-alpha.md\n\n## Usuário (id)\n@~/.claude/me.md\n\n"
+        expected = (compose.HEADER + "\n## General rules (superego)\n@~/.claude/rules-general.md\n\n"
+                    "## Company (ego)\n@~/.claude/glossary-alpha.md\n\n## User (id)\n@~/.claude/me.md\n\n"
                     + compose.FOOTER)
         self.assertEqual(compose.root_claude_md(man, home), expected)
 

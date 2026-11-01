@@ -1,4 +1,13 @@
-# Shared helpers for sync.sh, weekly.sh and harvest.sh (sourced, not run).
+# Shared helpers for sync.sh, restore.sh, weekly.sh and harvest.sh (sourced, not run).
+
+# memory_project_key DIR: original home key for a memory folder shortened by layers.py, else its basename.
+memory_project_key() {
+  if [ -f "$1/.project-key" ]; then
+    tr -d '\r\n' < "$1/.project-key"
+  else
+    basename "$1"
+  fi
+}
 
 # Locks are directories holding an owner file "<pid> <start epoch> <token>". The token (pid + random) is
 # unique per acquisition, so a release only removes a lock that is still ours.

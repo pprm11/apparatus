@@ -15,12 +15,12 @@ from pathlib import Path
 NOTE = "age-identity"
 KEY_MARK = "AGE-SECRET-KEY-"
 SERVERS = {"us": "https://vault.bitwarden.com", "eu": "https://vault.bitwarden.eu"}
-HUMAN_STEPS = """Crie a sua conta no Bitwarden (só você faz estes passos):
-  1. Abra https://vault.bitwarden.{tld} e escolha 'Criar conta'.
-  2. Defina uma senha mestra longa que você NÃO usa em outro lugar. Anote-a fora do computador: sem ela e sem o
-     código de recuperação não há como abrir o cofre.
-  3. Ative a verificação em duas etapas (Configurações > Segurança) e GUARDE o código de recuperação.
-  4. Volte aqui. O instalador vai pedir o login do bw e a senha mestra (só no seu terminal)."""
+HUMAN_STEPS = """Create your Bitwarden account (only you can do these steps):
+  1. Open https://vault.bitwarden.{tld} and choose 'Create account'.
+  2. Set a long master password that you do NOT use anywhere else. Write it down away from the computer: without it
+     and the recovery code there is no way to open the vault.
+  3. Turn on two-step verification (Settings > Security) and SAVE the recovery code.
+  4. Come back here. The installer will ask for the bw login and the master password (only in your terminal)."""
 
 
 def sha(text: str) -> str:
@@ -102,12 +102,12 @@ class Vault:
         """(status, recipient): reuse the vault note when it holds a key, else create it and verify it by hash."""
         have = self.read_note()
         if has_key(have):
-            return "reaproveitada do cofre", self.recipient_for(have)
+            return "reused from the vault", self.recipient_for(have)
         text, rcp = self.generate()
         self.store_note(text)
         if sha(self.read_note()) != sha(text) and sha(self.read_note().strip()) != sha(text.strip()):
-            raise RuntimeError("a nota no cofre não confere com a chave gerada; nada foi apagado")
-        return "criada e verificada no cofre", rcp
+            raise RuntimeError("the note in the vault does not match the generated key; nothing was deleted")
+        return "created and verified in the vault", rcp
 
 
 def save_recipient(home: Path, recipient: str) -> Path:

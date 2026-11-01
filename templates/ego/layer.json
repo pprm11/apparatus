@@ -2,12 +2,12 @@
  "level": "ego",
  "name": "<company>",
  "globals": [
-  "glossario-<company>.md",
-  "regras-<company>.md"
+  "glossary-<company>.md",
+  "rules-<company>.md"
  ],
  "rules": [],
  "dirs": [],
  "files": [],
- "glossary": "glossario-<company>.md",
+ "glossary": "glossary-<company>.md",
  "company": "<company>"
 }

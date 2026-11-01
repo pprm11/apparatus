@@ -1,0 +1,23 @@
+{
+ "level": "superego",
+ "globals": [
+  "agent-rules.md",
+  "agent-glossary.md"
+ ],
+ "rules": [
+  "context-map.md"
+ ],
+ "dirs": [
+  "harness"
+ ],
+ "files": [
+  "scripts/hook-bash-guard.py",
+  "scripts/hook-context-budget.py",
+  "scripts/hook-prompt-guard.py",
+  "scripts/test_hook_bash_guard.py",
+  "scripts/test_vault_sync.py",
+  "scripts/vault-sync.sh",
+  "scripts/vault_sync.py"
+ ],
+ "glossary": "agent-glossary.md"
+}

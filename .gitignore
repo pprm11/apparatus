@@ -7,6 +7,7 @@
 .sync.log
 .sync.lock/
 .work/
+.staging/
 __pycache__/
 node_modules/
 index/

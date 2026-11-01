@@ -1,23 +1,22 @@
-# psique de {{name}}
+# psique of {{name}}
 
-Repositório meta do contexto de agente de {{name}} (`{{github}}`), criado em {{date}} por
-`tools/onboard.py init` do superego. Ele não guarda contexto próprio: o `manifest.json` lista as camadas, na
-ordem em que carregam.
+Meta repo of {{name}}'s agent context (`{{github}}`), created on {{date}} by `tools/onboard.py init` of
+superego. It holds no context of its own: `manifest.json` lists the layers in the order they load.
 
-| Nível | O que é | Quem altera |
+| Level | What it is | Who changes it |
 |---|---|---|
-| superego | regras gerais e ferramentas (repositório compartilhado, versão fixada em `ref`) | só o dono do superego |
-| collective | o que o time compartilha (somente leitura aqui) | PR, com `onboard.py contribute` |
-| ego | a empresa ou o projeto (somente leitura aqui) | PR, com `onboard.py contribute` |
-| id | você: preferências, PDI, memórias pessoais (privado) | você, direto |
+| superego | general rules and tools (shared repo, version pinned in `ref`) | only the superego owner |
+| collective | what the team shares (read-only here) | PR, with `onboard.py contribute` |
+| ego | the company or project (read-only here) | PR, with `onboard.py contribute` |
+| id | you: preferences, development plan, personal memories (private) | you, directly |
 
-Memórias e skills sem `level:` no frontmatter vão para o `id` (`default_level`), nunca para uma camada compartilhada.
+Memories and skills without `level:` in the frontmatter go to `id` (`default_level`), never to a shared layer.
 
-## Comandos
+## Commands
 
-    python -I ~/Codes/superego/tools/onboard.py update --push    # o job horário faz isso
-    python -I ~/Codes/superego/tools/onboard.py update --upgrade # sobe a versão fixada do superego
-    python -I ~/Codes/superego/tools/onboard.py doctor
-    python -I ~/Codes/superego/tools/onboard.py uninstall
+    python -I <your-folder>/superego/tools/onboard.py update --push    # the hourly job does this
+    python -I <your-folder>/superego/tools/onboard.py update --upgrade # bumps the pinned superego version
+    python -I <your-folder>/superego/tools/onboard.py doctor
+    python -I <your-folder>/superego/tools/onboard.py uninstall
 
-Este repositório é privado e fica na sua conta. Não coloque nele nada de outra empresa ou pessoa.
+This repo is private and lives in your account. Put nothing from another company or person in it.

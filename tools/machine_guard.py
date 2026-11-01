@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Guarda da máquina (Windows): processos órfãos de busca, alarme de handles, sanidade do Docker.
+"""Machine guard (Windows): orphaned search processes, handle alarm, Docker sanity.
 
-Origem: 28/10/2026, um `find /` de uma sessão do Claude Code ficou 3 h órfão (o timeout do Bash manda o
-comando ao background sem matar), com 1,29 M handles e 1,24 GB de pool não paginado, e a VM do Docker
-segurava 16 GB com 12 containers, 9 deles unhealthy há até 20 h, deixados por sessões de validação.
+Origin: 2026-10-28, a `find /` from a Claude Code session stayed orphaned for 3 h (Bash's timeout sends the
+command to the background without killing it), with 1.29 M handles and 1.24 GB of nonpaged pool, and the Docker
+VM held 16 GB with 12 containers, 9 of them unhealthy for up to 20 h, left behind by validation sessions.
 
-Usage: python -I tools/machine_guard.py hourly   # mata órfãos de busca (>30 min, pai morto), alarme de
-                                                 # handles e pool, registra vmmemWSL (roda em sync.sh)
-       python -I tools/machine_guard.py weekly   # prune de containers parados >24 h, build cache >7 d,
-                                                 # imagens soltas; unhealthy >2 h vai ao inbox (weekly.sh)
-       python -I tools/machine_guard.py report [--since AAAA-MM-DD]   # os 3 números da medição semanal
-Eventos: ~/.claude/scripts/medicoes/eventos.jsonl (tipos orfao_morto, handles_alarme, vmmem_gb,
-docker_podado, docker_unhealthy). Só faz algo no Windows; em outro SO sai com 0 sem tocar em nada.
+Usage: python -I tools/machine_guard.py hourly   # kills orphaned searches (>30 min, dead parent), handle
+                                                 # and pool alarm, records vmmemWSL (runs in sync.sh)
+       python -I tools/machine_guard.py weekly   # prunes containers stopped >24 h, build cache >7 d,
+                                                 # dangling images; unhealthy >2 h goes to the inbox (weekly.sh)
+       python -I tools/machine_guard.py report [--since YYYY-MM-DD]   # the 3 numbers of the weekly measurement
+Events: ~/.claude/scripts/medicoes/eventos.jsonl (types orfao_morto, handles_alarme, vmmem_gb,
+docker_podado, docker_unhealthy). Only acts on Windows; on another OS it exits 0 without touching anything.
 """
 import argparse
 import json
@@ -25,9 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 EVENTOS = os.path.expanduser("~/.claude/scripts/medicoes/eventos.jsonl")
 ORFAOS = {"find.exe", "grep.exe", "rg.exe", "fd.exe", "tree.exe", "du.exe"}
-ORFAO_MIN = 30          # minutos vivo com o pai morto
+ORFAO_MIN = 30          # minutes alive with a dead parent
 HANDLES_ALARME = 100_000
-POOL_NP_ALARME_MB = 2048   # esta máquina (Hyper-V + WSL + Docker) fica em ~1,2 GB em repouso; o find levou a 1,24 GB
+POOL_NP_ALARME_MB = 2048   # this machine (Hyper-V + WSL + Docker) idles at ~1.2 GB; the find pushed it to 1.24 GB
 DOCKER_PARADO_H = 24
 DOCKER_CACHE_D = 7
 UNHEALTHY_H = 2
@@ -44,7 +44,7 @@ def log(tipo, **extra):
 
 
 def ps(script):
-    """Roda um trecho de PowerShell e devolve stdout; vazio se falhar."""
+    """Run a PowerShell snippet and return stdout; empty if it fails."""
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                              capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace")
@@ -54,7 +54,7 @@ def ps(script):
 
 
 def inbox(titulo, detalhe):
-    """Um item na caixa de decisões, sem duplicar o título."""
+    """Add one item to the decision inbox, without duplicating the title."""
     aqui = os.path.dirname(os.path.abspath(__file__))
     try:
         lista = subprocess.run([sys.executable, "-I", os.path.join(aqui, "decisions.py"), "list"],
@@ -69,7 +69,7 @@ def inbox(titulo, detalhe):
 
 
 def processos():
-    """[{pid, ppid, name, start_epoch, handles, cmd}] dos processos vivos (Win32_Process + Get-Process)."""
+    """[{pid, ppid, name, start_epoch, handles, cmd}] of live processes (Win32_Process + Get-Process)."""
     script = r"""
 $alive = @{}; Get-Process | ForEach-Object { $alive[$_.Id] = $_.HandleCount }
 Get-CimInstance Win32_Process | ForEach-Object {
@@ -104,18 +104,18 @@ def hourly():
         log("orfao_morto", pid=p["pid"], nome=p["name"], idade_min=round(idade_min), handles=p.get("handles"),
             cmd=p.get("cmd", ""))
         print(f"orphan killed: {p['name']} pid={p['pid']} age={idade_min:.0f}min handles={p.get('handles')} :: {p.get('cmd','')[:120]}")
-    # Alarme de handles por processo e de pool não paginado.
+    # Per-process handle alarm and nonpaged pool alarm.
     gordos = [p for p in procs if (p.get("handles") or 0) > HANDLES_ALARME and p["pid"] not in {m["pid"] for m in mortos}]
     pool = ps(r"[math]::Round((Get-Counter '\Memory\Pool Nonpaged Bytes').CounterSamples[0].CookedValue/1MB)").strip()
     pool_mb = int(pool) if pool.isdigit() else 0
     if gordos or pool_mb > POOL_NP_ALARME_MB:
-        quem = ", ".join(f"{p['name']} pid={p['pid']} handles={p['handles']}" for p in gordos) or "nenhum processo acima do teto"
+        quem = ", ".join(f"{p['name']} pid={p['pid']} handles={p['handles']}" for p in gordos) or "no process above the ceiling"
         log("handles_alarme", processos=[{"pid": p["pid"], "nome": p["name"], "handles": p["handles"]} for p in gordos],
             pool_np_mb=pool_mb)
-        inbox("Máquina: handles ou pool do kernel acima do teto",
-              f"{quem}; pool não paginado {pool_mb} MB (teto {POOL_NP_ALARME_MB}). Ver eventos.jsonl tipo handles_alarme.")
+        inbox("Machine: kernel handles or pool above the ceiling",
+              f"{quem}; nonpaged pool {pool_mb} MB (ceiling {POOL_NP_ALARME_MB}). See eventos.jsonl type handles_alarme.")
         print(f"alarm: {quem}; nonpaged pool {pool_mb} MB")
-    # vmmemWSL: pico da semana vai para a medição.
+    # vmmemWSL: the week's peak goes to the measurement.
     vm = ps(r"(Get-Process vmmemWSL,vmmem -ErrorAction SilentlyContinue | Measure-Object WorkingSet64 -Sum).Sum").strip()
     try:
         gb = round(int(float(vm)) / 2**30, 1)
@@ -148,7 +148,7 @@ def weekly():
         podado[nome] = ultima
         print(f"prune {nome}: {ultima or 'rc=' + str(rc)}")
     log("docker_podado", **podado)
-    # Containers unhealthy há mais de 2 h: não derruba (pode ser de uma sessão viva), avisa.
+    # Containers unhealthy for more than 2 h: does not remove them (may belong to a live session), warns instead.
     rc, out = docker(["ps", "--filter", "health=unhealthy", "--format", "{{.Names}}|{{.Status}}"])
     ruins = []
     for linha in out.splitlines():
@@ -165,13 +165,13 @@ def weekly():
             ruins.append(f"{nome} ({status})")
     if ruins:
         log("docker_unhealthy", containers=ruins)
-        inbox("Docker: containers unhealthy há mais de 2 h",
-              "; ".join(ruins) + ". Sessão dona terminou sem baixar? Remova com docker rm -f ou confirme o uso.")
+        inbox("Docker: containers unhealthy for more than 2 h",
+              "; ".join(ruins) + ". Did the owning session end without cleaning up? Remove with docker rm -f or confirm it is in use.")
         print("unhealthy: " + "; ".join(ruins))
 
 
 def report(since):
-    """Os 3 números da medição semanal: órfãos mortos, podas do Docker, pico de vmmemWSL."""
+    """The 3 numbers of the weekly measurement: orphans killed, Docker prunes, vmmemWSL peak."""
     n_orfaos, n_podas, pico = 0, 0, 0.0
     if os.path.exists(EVENTOS):
         for linha in open(EVENTOS, encoding="utf-8"):

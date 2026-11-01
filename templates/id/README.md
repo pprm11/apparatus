@@ -6,12 +6,12 @@ the user when they change company, and sensitive paths are stored encrypted.
 
 Start one:
 
-1. Copy this folder to a new private repo, for example `~/Codes/id-context`, and run `git init`.
+1. Copy this folder to a new private repo, for example `<your-folder>/id-context`, and run `git init`.
 2. Replace the example in `global/padroes-do-usuario.md` with the real preferences, and rename
-   `memory/chave-do-projeto/` to the key of a real project (the project path with `:`, `\` and `/` replaced
+   `memory/project-key/` to the key of a real project (the project path with `:`, `\` and `/` replaced
    by `-`).
 3. Add the repo to the meta repo's `manifest.json`, last in the list:
-   `{"level": "id", "name": "id", "path": "~/Codes/id-context", "repo": "git@github.com:<user>/id-context.git", "active": true}`.
+   `{"level": "id", "name": "id", "path": "<your-folder>/id-context", "repo": "git@github.com:<user>/id-context.git", "active": true}`.
 4. Generate an age key pair, keep the private key in a password manager and put the public key where the
    sync expects it (see `sealed/README.md`).
 

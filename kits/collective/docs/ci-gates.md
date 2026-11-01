@@ -71,9 +71,9 @@ steer an agent behind the user's back, and what is always loaded stays small.
 
 ### `glossary-format`
 
-- Checks: `global/glossary.md` starts with `# Glossário compartilhado (nível collective)`, has no
+- Checks: `global/glossary.md` starts with `# Team glossary (collective level)`, has no
   frontmatter, only `#` and `##` headings, a collisions table with the 3-column header
-  `| Palavra | Sentidos | Termo padrão |`, rows with exactly 3 columns, every list item defines a **term** in bold,
+  `| Word | Senses | Standard term |`, rows with exactly 3 columns, every list item defines a **term** in bold,
   no term is defined twice, and the file ends with a newline.
 - Why: the glossary is imported as plain text by Claude Code and inlined for Codex. A broken table or a duplicated
   term makes the ubiquitous language ambiguous, and it is the same format as the glossaries of the other layers.

@@ -72,7 +72,7 @@ def missing(answer: str) -> list[str]:
     return [token for token in EXPECT if token not in low]
 
 
-TITLE = "Codex novo não carregou o contexto compartilhado"
+TITLE = "A fresh Codex did not load the shared context"
 
 
 def raise_item(failures: list[str], home: str = decisions.HOME) -> bool:
@@ -83,8 +83,8 @@ def raise_item(failures: list[str], home: str = decisions.HOME) -> bool:
             return False
         decisions.new_item(
             data, "manual", TITLE, level="ego",
-            detail="; ".join(failures) + ". Ver ~/.codex/AGENTS.md (tamanho, render) e o AGENTS.md do repo.",
-            options=["A investigar agora", "B ignorar"], source="tools/check_codex.py")
+            detail="; ".join(failures) + ". See ~/.codex/AGENTS.md (size, render) and the repo AGENTS.md.",
+            options=["A investigate now", "B ignore"], source="tools/check_codex.py")
         decisions.save(data, home)
     return True
 

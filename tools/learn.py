@@ -10,7 +10,7 @@ hourly (behind HARVEST_LEARN=1); weekly.sh runs `effects`.
 
 Pipeline of `run`:
   1. extract (offline): new user turns of every session, live or archived, become signals in the ledger:
-     correction ("não, faz X"), decision (an answer to a question the agent asked), prompt (the rest).
+     correction ("no, do X"), decision (an answer to a question the agent asked), prompt (the rest).
   2. cluster (offline): prompts and corrections that say the same thing, not yet covered by any rule,
      memory or skill, become candidates when they repeat on 2+ days.
   3. classify (Haiku, one call): which candidates are real, which decisions are durable.
@@ -59,17 +59,22 @@ HAIKU_SHARE = 0.25       # of the run budget; Sonnet gets the rest
 MODEL_MIN_HOURS = 20     # the model stages run at most once a day, unless new decisions arrived
 EFFECT_WINDOW_DAYS = 14
 
-STOP = set("que para com uma por mas nao isso esse essa dos das nos nas como mais sobre pode ser tem foi vai "
-           "the and for you with this that are not from have ele ela aqui ali voce agora depois entao".split())
-CORRECTION = re.compile(
-    r"\b(nao[, ]+(faz|era|quero|e isso|foi isso|precisa|e assim)|de novo|refaz|refazer|ja (falei|disse|pedi|mandei)|"
-    r"esta errado|ta errado|voce (esqueceu|nao fez|errou)|nao e isso|para de|nunca mais|eu pedi|eu disse|"
-    r"not what i (asked|said)|that'?s wrong|i (said|told you)|no,? (do|use|make)|redo|again,? please|stop (doing|using))\b")
-APPROVAL = re.compile(
-    r"\b(aprovado|pode seguir|pode fazer|taca pau|faz o que achar|vamos com|fechado|opcao [a-d1-3]|decidi|"
-    r"a decisao|vira regra|pode ser a|approved|go ahead|ship it|option [a-d1-3]|i decided|make it a rule)\b"
-    r"|^\s*(?:[1-9][a-d][,\s]*)+\b")
-QUESTION = re.compile(r"\?|\b(opcao|opcoes|menu|recomend)", re.I)
+# Stopwords and phrase lists below are matched against accent-stripped, lowercased text. The *_PT entries are
+# Portuguese-only data the signal extractor needs for users who write in Portuguese; English comes first.
+STOP_EN = "the and for you with this that are not from have will can use per".split()
+STOP_PT = "que para com uma por mas nao isso esse essa dos das nos nas como mais sobre pode ser tem foi vai ele ela aqui ali voce agora depois entao".split()
+STOP = set(STOP_EN + STOP_PT)
+CORRECTION_EN = (r"not what i (asked|said)|that'?s wrong|i (said|told you)|no,? (do|use|make)|redo|again,? please|"
+                 r"stop (doing|using)|you (forgot|missed|got it wrong)|never again")
+CORRECTION_PT = (r"nao[, ]+(faz|era|quero|e isso|foi isso|precisa|e assim)|de novo|refaz|refazer|ja (falei|disse|pedi|mandei)|"
+                 r"esta errado|ta errado|voce (esqueceu|nao fez|errou)|nao e isso|para de|nunca mais|eu pedi|eu disse")
+CORRECTION = re.compile(r"\b(" + CORRECTION_EN + "|" + CORRECTION_PT + r")\b")
+APPROVAL_EN = r"approved|go ahead|ship it|option [a-d1-3]|i decided|make it a rule|go with|the decision is"
+APPROVAL_PT = r"aprovado|pode seguir|pode fazer|taca pau|faz o que achar|vamos com|fechado|opcao [a-d1-3]|decidi|a decisao|vira regra|pode ser a"
+APPROVAL = re.compile(r"\b(" + APPROVAL_EN + "|" + APPROVAL_PT + r")\b"
+                      r"|^\s*(?:[1-9][a-d][,\s]*)+\b")
+QUESTION_PT = r"opcao|opcoes|menu|recomend"
+QUESTION = re.compile(r"\?|\b(option|options|menu|recommend|" + QUESTION_PT + ")", re.I)
 
 
 def norm(text: str) -> list[str]:
@@ -187,8 +192,15 @@ def read_turns(session: agent_sessions.Session) -> list[tuple[str, str, str]]:
     return turns
 
 
+def fold(text: str) -> str:
+    """Lowercase, accent-stripped, whitespace-collapsed text with punctuation and short words kept (the phrase
+    lists above contain 1-2 letter words such as "no, do" and "1a")."""
+    text = unicodedata.normalize("NFKD", text.lower())
+    return " ".join("".join(c for c in text if not unicodedata.combining(c)).split())
+
+
 def classify_turn(text: str, prev_assistant: str) -> str:
-    n = " ".join(norm(text))
+    n = fold(text)
     if CORRECTION.search(n):
         return "correction"
     if len(text) <= 400 and APPROVAL.search(n) and prev_assistant and QUESTION.search(prev_assistant[-600:]):
@@ -625,14 +637,14 @@ def effects(home: str, ego: str = "", today: date | None = None) -> list[dict]:
 
 
 def render_report(rows: list[dict], state: dict) -> str:
-    lines = [f"# Aprendizado, {date.today().isoformat()}", ""]
-    lines.append(f"Propostas do loop: {len(state['proposed'])}; gasto de hoje: US$ {spent_today(state):.2f}.")
+    lines = [f"# Learning, {date.today().isoformat()}", ""]
+    lines.append(f"Loop proposals: {len(state['proposed'])}; spent today: US$ {spent_today(state):.2f}.")
     lines.append("")
     if rows:
-        lines += ["| Proposta | Antes | Depois | Veredito |", "|---|---|---|---|"]
+        lines += ["| Proposal | Before | After | Verdict |", "|---|---|---|---|"]
         lines += [f"| {r['proposal']} | {r.get('before', '-')} | {r.get('after', '-')} | {r['verdict']} |" for r in rows]
     else:
-        lines.append("Nenhuma proposta do loop ainda.")
+        lines.append("No loop proposals yet.")
     return "\n".join(lines) + "\n"
 
 

@@ -4,23 +4,27 @@ reach another person's machine (or already did).
 
   python -I tools/privacy.py scan PATH... [--allow-word WORD ...] [--json]     exit 1 when anything matches
 
-The patterns live in ci/privacy-terms.json (one source for CI, the tests and `onboard.py init`). `--allow-word`
-drops every pattern that matches the word, which is how a person whose own name is on the list can still scan.
+Generic patterns live in ci/privacy-terms.json. Optional per-person terms live in the context home at
+privacy-terms.local.json, outside the repo. The CI deny gate keeps its independent configuration.
+`--allow-word` drops every pattern that matches the word, so a person can scan their own name.
 Binary and very large files are skipped; file and folder names are scanned too.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 TERMS = Path(__file__).resolve().parent.parent / "ci" / "privacy-terms.json"
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules"}
 MAX_BYTES = 2 * 1024 * 1024
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -35,8 +39,23 @@ class Hit:
         return f"{where}: {self.rule}" + (f": {self.text}" if self.text else "")
 
 
-def load_config(path: Path | None = None) -> dict:
-    return json.loads((path or TERMS).read_text(encoding="utf-8"))
+def load_config(path: Path | None = None, *, context_home: Path | None = None) -> dict:
+    """Union generic and local lists, preserving order and distinct rules with the same name."""
+    cfg = json.loads((path or TERMS).read_text(encoding="utf-8"))
+    home = context_home or Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    local = home / "privacy-terms.local.json"
+    extra = json.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
+    for key in ("patterns", "forbidden_layer_repos", "personal_levels"):
+        cfg[key] = _unique([*cfg.get(key, []), *extra.get(key, [])])
+    return cfg
+
+
+def _unique(values: list[T]) -> list[T]:
+    out: list[T] = []
+    for value in values:
+        if value not in out:
+            out.append(value)
+    return out
 
 
 def patterns(cfg: dict | None = None, allow_words: Iterable[str] = ()) -> list[tuple[str, re.Pattern]]:

@@ -1,0 +1,3 @@
+{
+  "claude_only": ["inline-widgets", "claude-workflow-orchestration"]
+}

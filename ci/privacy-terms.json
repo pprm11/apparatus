@@ -1,0 +1,42 @@
+{
+ "_notes": {
+  "about": "Generic privacy patterns used by tools/privacy.py and the person installer. Per-person rules belong in privacy-terms.local.json in the context home, outside this repository. The CI deny gate uses ci/config.json independently.",
+  "patterns": "Case-insensitive patterns for identifiers and secret assignments. Example e-mail domains are reserved for documentation. Add person, company, client and product names only to the local file.",
+  "forbidden_layer_repos": "Optional local repository-name patterns that an install refuses to attach. Generic installs have no person-specific repository names.",
+  "personal_levels": "Levels whose repositories must belong to the person's own account."
+ },
+ "patterns": [
+  {
+   "name": "email",
+   "regex": "(?<![A-Za-z0-9._%+-])(?!git@)[A-Za-z0-9._%+-]+@(?!(?:[A-Za-z0-9-]+\\.)*example\\.(?:com|org|net)\\b|users\\.noreply\\.github\\.com|localhost)[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}\\b"
+  },
+  {
+   "name": "cpf",
+   "regex": "\\b\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2}\\b"
+  },
+  {
+   "name": "cnpj",
+   "regex": "\\b\\d{2}\\.?\\d{3}\\.?\\d{3}/?\\d{4}-?\\d{2}\\b"
+  },
+  {
+   "name": "phone",
+   "regex": "(?<!\\w)(?:\\+\\d{1,3}[ -]?)?\\(?\\d{2,3}\\)?[ -]?9?\\d{4}[ -]?\\d{4}\\b"
+  },
+  {
+   "name": "ip",
+   "regex": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b"
+  },
+  {
+   "name": "long-id",
+   "regex": "\\b[0-9a-f]{24,}\\b|\\b\\d{12,}\\b"
+  },
+  {
+   "name": "secret-assignment",
+   "regex": "\\b(?:api[_-]?key|secret|token|senha|password|passwd|pwd)\\b[\"']?\\s*[:=]\\s*[\"']?(?![$<{])[A-Za-z0-9_+/=-]{12,}"
+  }
+ ],
+ "forbidden_layer_repos": [],
+ "personal_levels": [
+  "id"
+ ]
+}

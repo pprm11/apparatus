@@ -2,8 +2,7 @@
 owner's personal or company layers.
 
 Everything runs in a temporary HOME against bare git repos on disk (`--git-host local:DIR`), so no GitHub account
-is needed. The forbidden names are never written in this file: they come from ci/privacy-terms.json or are built
-from fragments at run time.
+is needed. Per-person privacy terms use a synthetic local file inside the temporary context home.
 """
 import json
 import os
@@ -26,6 +25,12 @@ CANARY_COMPANY = "CANARY-OTHER-COMPANY-5520"
 CANARY_EGO = "CANARY-OWNER-EGO-4417"
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_NOSYSTEM": "1"}
+LOCAL_TERMS = {
+    "patterns": [{"name": "owner-name", "regex": "restricted-owner"},
+                 {"name": "colleague-name", "regex": "restricted-colleague"}],
+    "forbidden_layer_repos": ["(^|/)ego-other(\\.git)?$", "(^|/)retired-layer(\\.git)?$"],
+    "personal_levels": ["id"],
+}
 
 
 def git(*argv, cwd=None):
@@ -60,6 +65,9 @@ class Fixture(unittest.TestCase):
         self.base = Path(self.tmp.name).resolve()
         self.home = self.base / "home"
         self.home.mkdir()
+        local = self.home / ".claude" / "privacy-terms.local.json"
+        local.parent.mkdir()
+        local.write_text(json.dumps(LOCAL_TERMS), encoding="utf-8")
         self.remote = self.base / "remote"
         env = dict(os.environ, **GIT_ENV, HOME=str(self.home), USERPROFILE=str(self.home),
                    SUPEREGO_HOME=str(self.base / "state"))
@@ -73,13 +81,13 @@ class Fixture(unittest.TestCase):
         self.ctx = onboard.Ctx(sh=onboard.Sh(env), home=self.home, say=self.lines.append, interactive=False)
         team = "teamx"
         self.coll = make_shared(self.remote, "owner", f"collective-{team}", {
-            "level": "collective", "name": team, "mode": "readonly", "globals": ["glossary.md"], "rules": [],
-            "dirs": [], "files": [], "company": team}, {"global/glossary.md": "# Glossary\n\n- **term-a**: shared.\n"})
+            "level": "collective", "name": team, "mode": "readonly", "globals": ["team-glossary.md"], "rules": [],
+            "dirs": [], "files": [], "company": team}, {"global/team-glossary.md": "# Glossary\n\n- **term-a**: shared.\n"})
         self.ego = make_shared(self.remote, "owner", f"ego-{team}", {
             "level": "ego", "name": team, "globals": ["glossario-teamx.md"], "rules": [], "dirs": [], "files": [],
             "company": team}, {"global/glossario-teamx.md": f"# Glossario TeamX\n\n- **owner-only**: {CANARY_EGO}\n"})
         # decoys: the owner's personal layer and another company's ego, with canaries inside
-        other = "ego-" + "na" + "mastex"
+        other = "ego-other"
         self.decoy_ego = make_shared(self.remote, "owner", other, {
             "level": "ego", "name": "other", "globals": ["g.md"], "rules": [], "dirs": [], "files": []},
             {"global/g.md": f"{CANARY_COMPANY}\n"})
@@ -112,7 +120,7 @@ class InstallTest(Fixture):
         claude = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
         agents = (self.home / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
         for text in (claude, agents.replace("\r\n", "\n")):
-            self.assertIn("glossary.md" if text is claude else "term-a", text)
+            self.assertIn("team-glossary.md" if text is claude else "term-a", text)
         self.assertIn("teamx", agents, "the person's own ego, made from the template, is composed")
         manifest = json.loads((self.home / "Codes" / "psique" / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual([l["level"] for l in manifest["layers"]], ["superego", "collective", "ego", "id"])
@@ -124,7 +132,7 @@ class InstallTest(Fixture):
         self.assertEqual(manifest["default_level"], "id")
         for repo in ("psique", "id-context"):  # created in HIS account
             self.assertTrue((self.remote / "testperson" / f"{repo}.git").is_dir(), repo)
-        self.assertFalse(any("falhou" in l or "[  FAIL]" in l or "FAIL]" in l for l in self.lines), self.lines)
+        self.assertFalse(any("[failed]" in l or "FAIL]" in l for l in self.lines), self.lines)
 
     def test_nothing_from_the_owner_personal_or_other_company_layers(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
@@ -133,8 +141,10 @@ class InstallTest(Fixture):
         self.assertNotIn(CANARY_COMPANY, text)
         self.assertNotIn(CANARY_EGO, text, "the owner's ego never reaches the other person")
         self.assertFalse((self.remote / "owner" / "ego-teamx.git").exists() and (self.home / "Codes" / "owner").exists())
-        self.assertFalse((self.home / "Codes" / "ego-na" "mastex").exists())
-        hits = privacy.scan_paths([self.home / ".claude", self.home / ".codex" / "AGENTS.md"],
+        self.assertFalse((self.home / "Codes" / "ego-other").exists())
+        restored = [p for p in (self.home / ".claude").rglob("*")
+                    if p.is_file() and p.name != "privacy-terms.local.json"]
+        hits = privacy.scan_paths([*restored, self.home / ".codex" / "AGENTS.md"],
                                   privacy.patterns(allow_words=["testperson", "Test", "Person"]), self.home)
         self.assertEqual([h for h in hits if not (h.path.endswith("AGENTS.md") and h.line == 1)], [])
 
@@ -152,13 +162,29 @@ class InstallTest(Fixture):
     def test_a_term_in_a_shared_layer_stops_the_install(self):
         leaky = make_shared(self.remote, "owner", "collective-leaky", {
             "level": "collective", "name": "leaky", "mode": "readonly", "globals": ["g.md"], "rules": [], "dirs": [],
-            "files": [], "company": "leaky"}, {"global/g.md": "Maintained by Ped" + "ro for the team.\n"})
+            "files": [], "company": "leaky"}, {"global/g.md": "Maintained by restricted-owner for the team.\n"})
         argv = self.argv()
         argv[argv.index(f"collective:teamx={self.coll}")] = f"collective:leaky={leaky}"
         self.assertEqual(self.run_cli(argv), 1)
-        self.assertTrue(any("VAZOU" in l for l in self.lines), self.lines)
+        self.assertTrue(any("LEAKED" in l for l in self.lines), self.lines)
         self.assertFalse((self.home / ".claude" / "CLAUDE.md").exists())
         self.assertFalse((self.home / ".claude" / "g.md").exists(), "nothing is restored when the gate trips")
+
+    def test_a_term_in_a_shared_layer_uses_the_selected_context_home(self):
+        selected = self.home / "selected-context"
+        selected.mkdir()
+        # The process environment still points at the default context; the install has its own selection.
+        local = self.home / ".claude" / "privacy-terms.local.json"
+        local.replace(selected / local.name)
+        self.ctx.sh.env["CLAUDE_CONFIG_DIR"] = str(selected)
+        leaky = make_shared(self.remote, "owner", "collective-selected", {
+            "level": "collective", "name": "selected", "mode": "readonly", "globals": ["g.md"], "rules": [],
+            "dirs": [], "files": [], "company": "selected"}, {"global/g.md": "restricted-owner\n"})
+        argv = self.argv()
+        argv[argv.index(f"collective:teamx={self.coll}")] = f"collective:selected={leaky}"
+        self.assertEqual(self.run_cli(argv), 1)
+        self.assertTrue(any("LEAKED" in line for line in self.lines), self.lines)
+        self.assertFalse((selected / "g.md").exists())
 
     def test_rerun_changes_nothing(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
@@ -184,20 +210,20 @@ class InstallTest(Fixture):
     def test_update_reaches_the_shared_layers(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
         work = self.remote / "_work" / "owner" / "collective-teamx"
-        (work / "global" / "glossary.md").write_text("# Glossary\n\n- **term-b**: new.\n", encoding="utf-8")
+        (work / "global" / "team-glossary.md").write_text("# Glossary\n\n- **term-b**: new.\n", encoding="utf-8")
         git("commit", "-q", "-am", "feat: term b", cwd=work)
         git("push", "-q", self.coll, "HEAD:main", cwd=work)
         self.assertEqual(self.run_cli(["update"]), 0, "\n".join(self.lines))
-        self.assertIn("term-b", (self.home / ".claude" / "glossary.md").read_text(encoding="utf-8"))
+        self.assertIn("term-b", (self.home / ".claude" / "team-glossary.md").read_text(encoding="utf-8"))
         self.assertIn("term-b", (self.home / ".codex" / "AGENTS.md").read_text(encoding="utf-8"))
 
     def test_uninstall_restores_the_own_files_and_keeps_the_repos(self):
-        (self.home / ".claude").mkdir()
+        (self.home / ".claude").mkdir(exist_ok=True)
         (self.home / ".claude" / "CLAUDE.md").write_text("my own rules\n", encoding="utf-8")
         self.assertEqual(self.run_cli(self.argv()), 0)
         self.assertEqual(self.run_cli(["uninstall"]), 0)
         self.assertEqual((self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8"), "my own rules\n")
-        self.assertFalse((self.home / ".claude" / "glossary.md").exists())
+        self.assertFalse((self.home / ".claude" / "team-glossary.md").exists())
         self.assertTrue((self.remote / "testperson" / "id-context.git").is_dir(), "the remote repo stays")
 
     def test_contribute_start_and_submit_use_a_worktree_and_open_a_pr(self):
@@ -243,9 +269,18 @@ class JobsTest(Fixture):
 class SuperegoPayloadTest(unittest.TestCase):
     """What superego puts on another person's machine carries no owner, company or client name."""
 
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        local = Path(tmp.name) / "privacy-terms.local.json"
+        local.write_text(json.dumps(LOCAL_TERMS), encoding="utf-8")
+        patcher = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": tmp.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_payload_templates_and_installer_are_clean(self):
         man = {"layers": [{"level": "superego", "path": str(ROOT)}]}
-        layer = {"level": "superego", "path": str(ROOT), "config": layers.read_json(str(ROOT / "layer.json"))}
+        layer = {"level": "superego", "path": str(ROOT / "superego"), "config": layers.read_json(str(ROOT / "superego" / "layer.json"))}
         del man
         pats = privacy.patterns()
         paths = onboard.layer_payload(layer) + [ROOT / "templates", ROOT / "install.sh", ROOT / "install.ps1",
@@ -257,24 +292,24 @@ class SuperegoPayloadTest(unittest.TestCase):
         self.assertEqual([str(h) for h in hits if "skills/neon" not in h.path], [])
 
     def test_every_skill_is_clean_or_explicitly_excluded(self):
-        cfg = layers.read_json(str(ROOT / "layer.json"))
+        cfg = layers.read_json(str(ROOT / "superego" / "layer.json"))
         excluded = set(cfg.get("install_exclude", {}).get("skills", []))
         pats = privacy.patterns()
-        for sk in sorted((ROOT / "skills").iterdir()):
+        for sk in sorted((ROOT / "superego" / "skills").iterdir()):
             if not sk.is_dir() or sk.name in excluded or sk.name.startswith("neon"):
                 continue
             self.assertEqual(privacy.scan_paths([sk], pats, ROOT), [], f"skill {sk.name}: clean it or add it to install_exclude")
         for name in excluded:
-            self.assertTrue((ROOT / "skills" / name).is_dir(), f"install_exclude names a missing skill: {name}")
+            self.assertTrue((ROOT / "superego" / "skills" / name).is_dir(), f"install_exclude names a missing skill: {name}")
 
     def test_forbidden_layer_names(self):
         cfg = privacy.load_config()
-        for name in ("ego-" + "na" + "mastex", "claude-" + "brain", "cyber-" + "p"):
+        for name in ("ego-other", "retired-layer"):
             self.assertTrue(privacy.forbidden_layer(f"https://example.com/o/{name}.git", cfg), name)
         self.assertIsNone(privacy.forbidden_layer("https://example.com/o/ego-teamx.git", cfg))
 
     def test_own_name_is_allowed_for_that_person_only(self):
-        word = "Mar" + "tino"
+        word = "restricted-colleague"
         text = f"{word} wrote this\n"
         self.assertTrue(privacy.scan_text(text, privacy.patterns(), "f"))
         self.assertEqual(privacy.scan_text(text, privacy.patterns(allow_words=[word]), "f"), [])

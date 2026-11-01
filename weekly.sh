@@ -102,8 +102,8 @@ echo "claude exited with $rc" >> .work/claude-output.txt
 # The model step only counts when it left the report behind.
 if [ "$rc" -ne 0 ] || [ ! -s "$EGO/reports/$DATE.md" ]; then
   echo "weekly FAILED: claude exit $rc, reports/$DATE.md $([ -s "$EGO/reports/$DATE.md" ] && echo present || echo missing)" >&2
-  python -I tools/decisions.py add "weekly falhou em $DATE" --source weekly \
-    --detail "claude saiu com $rc; reports/$DATE.md ausente ou vazio na camada ego. Ver .work/claude-output.txt em superego." \
+  python -I tools/decisions.py add "weekly failed on $DATE" --source weekly \
+    --detail "claude exited with $rc; reports/$DATE.md missing or empty in the ego layer. See .work/claude-output.txt in superego." \
     || echo "inbox add failed" >&2
   exit 1
 fi

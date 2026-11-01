@@ -85,6 +85,7 @@ class LongKeyExportTest(LayerSandbox):
     def test_restore_puts_the_memory_back_under_the_original_key(self):
         self.export_long()
         shutil.copy(os.path.join(ROOT, "restore.sh"), os.path.join(self.tmp, "restore.sh"))
+        shutil.copy(os.path.join(ROOT, "lib.sh"), os.path.join(self.tmp, "lib.sh"))
         os.makedirs(os.path.join(self.tmp, "tools"))
         for f in os.listdir(os.path.join(ROOT, "tools")):
             if f.endswith(".py"):

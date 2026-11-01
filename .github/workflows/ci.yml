@@ -48,9 +48,10 @@ jobs:
       - name: Vault sync test (fake bw)
         run: python -I scripts/test_vault_sync.py
       - name: Always-loaded context size (per-layer byte budget, delta vs main)
+        # --budget is this layer's number in psique/manifest.json "budgets"; the step fails over 90% of it.
         run: |
           git fetch --no-tags --depth=1 origin main
-          python -I tools/context_budget.py --repo . --base origin/main
+          python -I tools/context_budget.py --repo . --base origin/main --budget 12500
 
   gitleaks:
     name: gitleaks

@@ -11,21 +11,21 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import lint_glossary as lg  # noqa: E402
 
-GOOD = """# Glossário de teste (nível {level})
+GOOD = """# Test glossary ({level} level)
 
-Versão: v1.0, 01/01/2026.
+Version: v1.0, 2026-01-01.
 
-## Colisões (mesma palavra, coisas diferentes)
+## Collisions (same word, different things)
 
-| Palavra | Sentidos | Termo padrão |
+| Word | Senses | Standard term |
 |---|---|---|
 {rows}
 
-## Termos padrão
+## Standard terms
 {terms}
 
-## Como interpretar pedidos
-- **pede {level}**: leitura própria desta camada.
+## How to read requests
+- **asks {level}**: this layer's own reading.
 """
 
 
@@ -43,14 +43,14 @@ class Sandbox(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def layer(self, level: str, terms: str = "- **task**: unidade de trabalho.", rows: str = "", text: str | None = None,
+    def layer(self, level: str, terms: str = "- **task**: unit of work.", rows: str = "", text: str | None = None,
               cfg_extra: dict | None = None) -> str:
         d = os.path.join(self.tmp.name, level)
-        cfg = {"level": level, "globals": ["glossario.md"], "glossary": "glossario.md"}
+        cfg = {"level": level, "globals": ["glossary.md"], "glossary": "glossary.md"}
         cfg.update(cfg_extra or {})
         write(os.path.join(d, "layer.json"), json.dumps(cfg))
         body = text if text is not None else GOOD.format(level=level, rows=rows or "| x | a · b | **a** · **b** |", terms=terms)
-        write(os.path.join(d, "global", "glossario.md"), body)
+        write(os.path.join(d, "global", "glossary.md"), body)
         self.dirs[level] = d
         return d
 
@@ -61,49 +61,54 @@ class Sandbox(unittest.TestCase):
 class ShapeTest(Sandbox):
     def test_well_formed_layers_pass(self) -> None:
         self.layer("superego")
-        self.layer("ego", terms="- **Acme**: a empresa.")
+        self.layer("ego", terms="- **Acme**: the company.")
         problems, warnings = self.run_lint()
         self.assertEqual(problems, [])
         self.assertEqual(warnings, [])
 
     def test_missing_version_and_sections_are_problems(self) -> None:
-        self.layer("ego", text="# Glossário\n\n## Termos padrão\n- **a**: b.\n")
+        self.layer("ego", text="# Glossary\n\n## Standard terms\n- **a**: b.\n")
         problems, _ = self.run_lint()
-        self.assertTrue(any("Versão" in p for p in problems), problems)
-        self.assertTrue(any("Colisões" in p for p in problems), problems)
-        self.assertTrue(any("Como interpretar pedidos" in p for p in problems), problems)
+        self.assertTrue(any("Version" in p for p in problems), problems)
+        self.assertTrue(any("Collisions" in p for p in problems), problems)
+        self.assertTrue(any("How to read requests" in p for p in problems), problems)
 
     def test_glossary_must_be_declared_present_and_loaded(self) -> None:
         self.layer("ego", cfg_extra={"glossary": None})
         self.layer("id", cfg_extra={"globals": []})
         d = self.layer("superego")
-        os.remove(os.path.join(d, "global", "glossario.md"))
+        os.remove(os.path.join(d, "global", "glossary.md"))
         problems, _ = self.run_lint()
         self.assertTrue(any("no `glossary` field" in p for p in problems), problems)
         self.assertTrue(any("not listed in `globals`" in p for p in problems), problems)
         self.assertTrue(any("not found" in p for p in problems), problems)
 
+    def test_persona_layer_needs_no_glossary(self) -> None:
+        self.layer("persona", cfg_extra={"glossary": None})
+        problems, _ = self.run_lint()
+        self.assertFalse(any("persona" in p for p in problems), problems)
+
 
 class CrossLayerTest(Sandbox):
     def test_same_term_different_meaning_is_a_problem_unless_a_collision(self) -> None:
-        self.layer("superego", terms="- **onda**: lote de tasks por dependência.")
-        self.layer("ego", terms="- **onda**: disparo de campanha.")
+        self.layer("superego", terms="- **wave**: batch of tasks by dependency.")
+        self.layer("ego", terms="- **wave**: campaign send.")
         problems, _ = self.run_lint()
-        self.assertTrue(any("`onda`" in p and "different texts" in p for p in problems), problems)
-        self.layer("ego", terms="- **onda**: disparo de campanha.", rows="| onda | lote de tasks · disparo | **onda** · **onda de disparo** |")
+        self.assertTrue(any("`wave`" in p and "different texts" in p for p in problems), problems)
+        self.layer("ego", terms="- **wave**: campaign send.", rows="| wave | batch of tasks · send | **wave** · **send wave** |")
         problems, _ = self.run_lint()
         self.assertEqual(problems, [])
 
     def test_same_term_same_meaning_is_only_a_warning(self) -> None:
-        self.layer("superego", terms="- **task**: unidade de trabalho.")
-        self.layer("ego", terms="- **task**: unidade de trabalho.")
+        self.layer("superego", terms="- **task**: unit of work.")
+        self.layer("ego", terms="- **task**: unit of work.")
         problems, warnings = self.run_lint()
         self.assertEqual(problems, [])
         self.assertTrue(any("`task`" in w and "same definition" in w for w in warnings), warnings)
 
     def test_superego_may_not_name_a_term_of_another_layer(self) -> None:
-        self.layer("superego", terms="- **task**: unidade de trabalho da Acme Checkout.")
-        self.layer("ego", terms="- **Acme Checkout**: o produto.")
+        self.layer("superego", terms="- **task**: unit of work of Acme Checkout.")
+        self.layer("ego", terms="- **Acme Checkout**: the product.")
         problems, _ = self.run_lint()
         self.assertTrue(any("superego glossary mentions `acme checkout`" in p for p in problems), problems)
 
@@ -121,7 +126,7 @@ class TemplatesAndCliTest(unittest.TestCase):
 
     def test_this_repo_glossary_passes(self) -> None:
         """The superego's own glossary (global/<glossary>) keeps the shape; CI runs this on every push."""
-        problems, _ = lg.check(lg.load_layer_dirs([ROOT]))
+        problems, _ = lg.check(lg.load_layer_dirs([os.path.join(ROOT, "superego")]))
         self.assertEqual(problems, [], problems)
 
     def test_cli_exit_code_follows_problems(self) -> None:

@@ -86,7 +86,7 @@ class LevelTest(unittest.TestCase):
         self.assertNotIn("secret therapy topic", page)
         self.assertNotIn("very private", page)
         self.assertNotIn("diary", page)
-        self.assertIn("1 decisões pessoais, veja a sessão", page)
+        self.assertIn("1 personal decisions, see the session", page)
 
 
 if __name__ == "__main__":

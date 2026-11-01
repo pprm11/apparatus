@@ -77,6 +77,42 @@ class RootsTest(unittest.TestCase):
             self.assertEqual(out.stdout.strip(), os.path.normpath(tmp))
 
 
+class NestedLayerTest(unittest.TestCase):
+    """The superego layer lives in <apparatus>/superego; a manifest from before the move keeps working."""
+
+    def make(self, base: Path) -> Path:
+        app = base / "apparatus"
+        (app / "superego").mkdir(parents=True)
+        (app / ".git").mkdir()
+        (app / "superego" / "layer.json").write_text(json.dumps({"level": "superego"}), encoding="utf-8")
+        (base / "psique").mkdir()
+        return app
+
+    def manifest(self, base: Path, path: str) -> str:
+        m = base / "psique" / "manifest.json"
+        m.write_text(json.dumps({"layers": [{"level": "superego", "path": path, "repo": "x/y"}]}), encoding="utf-8")
+        return str(m)
+
+    def test_old_manifest_pointing_at_the_repo_root_finds_the_nested_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self.make(Path(tmp))
+            man = layers.load_manifest(self.manifest(Path(tmp), str(app)))
+            self.assertEqual(man["layers"][0]["path"], os.path.normpath(str(app / "superego")))
+            self.assertEqual(man["layers"][0]["config"], {"level": "superego"})
+
+    def test_new_manifest_pointing_at_the_nested_folder_is_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self.make(Path(tmp))
+            man = layers.load_manifest(self.manifest(Path(tmp), str(app / "superego")))
+            self.assertEqual(man["layers"][0]["path"], os.path.normpath(str(app / "superego")))
+
+    def test_repo_root_climbs_from_the_nested_layer_to_the_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self.make(Path(tmp))
+            self.assertEqual(layers.repo_root(str(app / "superego")), os.path.abspath(str(app)))
+            self.assertEqual(layers.repo_root(str(app)), os.path.abspath(str(app)))
+
+
 class NoHardcodedRootTest(unittest.TestCase):
     def test_tools_do_not_default_to_a_fixed_codes_folder(self) -> None:
         for name in ("layers", "compose", "context_budget", "render_harness", "bootstrap"):

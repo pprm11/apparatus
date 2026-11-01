@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python -I drop
 
 MAX_BYTES = 32 * 1024  # Codex stops reading instruction files past this size
 WARN_BYTES = MAX_BYTES * 7 // 8  # 28,672: early warning, so the limit never arrives as a surprise
-WARN_TITLE = "AGENTS.md do Codex perto do limite de 32 KiB"
+WARN_TITLE = "Codex AGENTS.md near the 32 KiB limit"
 IMPORT = re.compile(r"^@(~?[^\s]+\.md)\s*$")
 
 
@@ -148,7 +148,7 @@ def raise_size_item(message: str, claude_home: str) -> bool:
         if any(i["title"] == WARN_TITLE and i["status"] == "open" for i in data["items"]):
             return False
         decisions.new_item(data, "manual", WARN_TITLE, level="superego", detail=message,
-                           options=["A enxugar as fontes", "B subir o limite do aviso"], source="tools/render_harness.py")
+                           options=["A trim the sources", "B raise the warning limit"], source="tools/render_harness.py")
         decisions.save(data, claude_home)
     return True
 
