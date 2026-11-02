@@ -4,7 +4,7 @@ Terms come from lists that already exist: ego-socioia/ci/deny-terms.txt (regex p
 collective-socioia/.denylist.companies.local (literal per line). Nothing is hardcoded here.
 
 Status of the neutrality test: the id layer on its main branch still names the other company in three of its
-loaded texts, so the Socio IA home fails it TODAY. It is marked expectedFailure until the id-context PR
+loaded texts, so the Socio IA home fails it TODAY. It is marked expectedFailure until the id PR
 "company-neutral id texts" is merged. When that happens set ID_PR_MERGED = True (an unexpected success is
 reported as a failure on purpose, as the reminder). To see it pass now, point COMPOSE_TEST_ID_DIR at a checkout
 of that PR branch.
@@ -19,11 +19,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import compose  # noqa: E402
 import companies  # noqa: E402
 import layers  # noqa: E402
+import roots  # noqa: E402
 
 ID_PR_MERGED = True
 
 CODES = os.path.expanduser("~/Codes")
-MANIFEST = os.path.expanduser(os.environ.get("PSIQUE_MANIFEST", os.path.join(CODES, "psique", "manifest.json")))
+MANIFEST = os.path.expanduser(os.environ.get("PSIQUE_MANIFEST", roots.default_manifest()))
 COMPANIES = os.path.expanduser(os.environ.get("COMPANIES_FILE", "~/.claude/companies.json"))
 DENY_REGEX = os.path.join(CODES, "ego-socioia", "ci", "deny-terms.txt")
 DENY_LITERAL = os.path.join(CODES, "collective-socioia", ".denylist.companies.local")
@@ -62,7 +63,7 @@ class RealCompositionTest(unittest.TestCase):
     @expected_failure_until_id_pr_is_merged
     def test_socioia_home_has_no_term_of_the_other_company(self) -> None:
         man = load_manifest()
-        man["budgets"] = {}  # budgets have their own test in psique; this one is about terms
+        man["budgets"] = {}  # budgets have their own test in self; this one is about terms
         with tempfile.TemporaryDirectory() as out:
             rc = compose.compose_company(man, "socioia", companies.load(COMPANIES), out, CODES, note=lambda m: None)
             self.assertEqual(rc, 0)

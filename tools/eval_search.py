@@ -12,13 +12,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir from sys.path
+import roots  # noqa: E402
 from search_memory import resolve_root, search  # noqa: E402
 
 def evals_dir() -> str:
     """evals/ of the active ego layer (the cases query that company's memory); EVALS_DIR overrides."""
     if os.environ.get("EVALS_DIR"):
         return os.environ["EVALS_DIR"]
-    manifest = os.environ.get("SYNC_MANIFEST", os.path.expanduser("~/Codes/psique/manifest.json"))
+    manifest = os.environ.get("SYNC_MANIFEST", roots.default_manifest())
     try:
         import json
         with open(manifest, encoding="utf-8") as fh:

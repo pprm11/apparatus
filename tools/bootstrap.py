@@ -1,6 +1,6 @@
 """Set up a machine for the layered agent context: tools, vault, GitHub auth, layer clones, restore, doctor.
 
-  python -I tools/bootstrap.py --psique OWNER/REPO [--dry-run] [--step NAME ...] [--with-jobs] [--json]
+  python -I tools/bootstrap.py --self OWNER/REPO [--dry-run] [--step NAME ...] [--with-jobs] [--json]
 
 Run through `bootstrap.sh` (macOS, Linux) or `bootstrap.ps1` (Windows), which only find a real Python 3.10+.
 Every stage checks before it acts, so a second run changes nothing. The vault login is the only interactive
@@ -103,7 +103,7 @@ class Ctx:
     which: Callable[[str], str | None] = shutil.which
     env: dict = field(default_factory=lambda: dict(os.environ))
     manifest: Path | None = None
-    psique: str = ""
+    self_repo: str = ""
     home: Path = field(default_factory=Path.home)
     with_jobs: bool = False
     out: Callable[[str], None] = print
@@ -233,14 +233,14 @@ def stage_repos(ctx: Ctx) -> Result:
     man = ctx.manifest or default_manifest(ctx)
     notes = []
     if not man.is_file():
-        if not ctx.psique:
-            return Result("failed", f"no manifest at {man}; pass --psique OWNER/REPO or --manifest")
-        r = clone(ctx, ctx.psique, man.parent)
+        if not ctx.self_repo:
+            return Result("failed", f"no manifest at {man}; pass --self OWNER/REPO or --manifest")
+        r = clone(ctx, ctx.self_repo, man.parent)
         notes.append(r.detail)
         if r.status == "failed":
             return r
     if ctx.runner.dry_run and not man.is_file():
-        return Result("todo", f"would clone {ctx.psique}, then every active layer of its manifest")
+        return Result("todo", f"would clone {ctx.self_repo}, then every active layer of its manifest")
     data = layers.load_manifest(str(man))
     for layer in layers.active_layers(data):
         slug = repo_slug(layer.get("repo", ""))
@@ -326,7 +326,8 @@ def run_stages(ctx: Ctx, steps: Sequence[str], state_path: Path | None = None) -
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--psique", default="", help="OWNER/REPO of the meta repo (clone source when no manifest yet)")
+    ap.add_argument("--self", dest="self_repo", default="", help="OWNER/REPO of the meta repo (clone source when no manifest yet)")
+    ap.add_argument("--psique", dest="self_repo", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     ap.add_argument("--manifest")
     ap.add_argument("--dry-run", action="store_true", help="print what would run; change nothing")
     ap.add_argument("--step", action="append", choices=STAGES, help="run only these stages (repeatable)")
@@ -334,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
-    ctx = Ctx(plat=sys.platform, runner=Runner(dry_run=args.dry_run), psique=args.psique,
+    ctx = Ctx(plat=sys.platform, runner=Runner(dry_run=args.dry_run), self_repo=args.self_repo,
               manifest=Path(args.manifest) if args.manifest else None, with_jobs=args.with_jobs)
     if args.json:
         ctx.out = lambda _s: None

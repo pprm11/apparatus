@@ -1,7 +1,7 @@
 # Public mirror
 
 This repository is a mirror of the generic agent-context layer with no source history. Each publish appends
-one snapshot commit to the previous mirror commit. This tree comes from source commit `dd866cab83b46452086143f9710423fb53cae0f2` on 2026-11-01.
+one snapshot commit to the previous mirror commit. This tree comes from source commit `265822d29891f9e5bd4a126a7f82b40f3f3b0327` on 2026-11-02.
 
 Update an existing clone with `git pull --ff-only`.
 

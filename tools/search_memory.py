@@ -25,6 +25,9 @@ import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ospaths import long_path  # noqa: E402
+
 REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 INDEX_PATH = os.path.join(REPO, "index", "search-index.json")
 CATALOG_PATH = os.path.join(REPO, "INDEX.md")
@@ -87,7 +90,7 @@ def _field(front: str, key: str) -> str:
 
 
 def _read(path: str, kind: str) -> Doc:
-    with open(path, encoding="utf-8", errors="replace") as fh:
+    with open(long_path(path), encoding="utf-8", errors="replace") as fh:
         text = fh.read().replace("\r\n", "\n")
     m = FRONT.match(text)
     front, body = (m.group(1), text[m.end():]) if m else ("", text)
@@ -145,13 +148,33 @@ def sources(root: str) -> list[tuple[str, str]]:
     return sorted(found)
 
 
+_REPORTED: set[str] = set()
+
+
+def readable_sources(root: str) -> list[tuple[str, str]]:
+    """`sources` minus the files this process cannot stat. One unreadable file must not stop the whole index:
+    each is reported once on stderr and left out. A path over Windows MAX_PATH is not a reason to skip it:
+    `long_path` reaches it."""
+    ok = []
+    for path, kind in sources(root):
+        try:
+            os.stat(long_path(path))
+        except OSError as exc:
+            if path not in _REPORTED:
+                _REPORTED.add(path)
+                print(f"search_memory: skipped {path} ({len(path)} chars): {exc}", file=sys.stderr)
+            continue
+        ok.append((path, kind))
+    return ok
+
+
 def glossary_aliases(root: str) -> dict[str, list[str]]:
     """Collision table of the glossary: each word maps to the tokens of its standard terms."""
     path = os.path.join(root, "ubiquitous-language.md")
-    if not os.path.exists(path):
+    if not os.path.exists(long_path(path)):
         return {}
     aliases: dict[str, list[str]] = {}
-    with open(path, encoding="utf-8") as fh:
+    with open(long_path(path), encoding="utf-8") as fh:
         for line in fh:
             cells = [c.strip() for c in line.strip().strip("|").split("|")]
             if len(cells) != 3 or not cells[2].count("**"):
@@ -173,16 +196,16 @@ def _weighted_tf(doc: Doc) -> dict[str, float]:
 
 def source_fingerprint(root: str) -> str:
     """Hash paths and content, including the optional glossary, independent of timestamps."""
-    paths = [p for p, _ in sources(root)]
+    paths = [p for p, _ in readable_sources(root)]
     glossary = os.path.join(root, "ubiquitous-language.md")
-    if os.path.isfile(glossary):
+    if os.path.isfile(long_path(glossary)):
         paths.append(glossary)
     digest = hashlib.sha256()
     for path in sorted(paths):
         encoded = os.fsencode(path)
         digest.update(len(encoded).to_bytes(8, "big"))
         digest.update(encoded)
-        with open(path, "rb") as fh:
+        with open(long_path(path), "rb") as fh:
             content = hashlib.file_digest(fh, "sha256").digest()
         digest.update(content)
     return digest.hexdigest()
@@ -190,7 +213,7 @@ def source_fingerprint(root: str) -> str:
 
 def build(root: str) -> dict:
     fingerprint = source_fingerprint(root)
-    docs = [_read(p, kind) for p, kind in sources(root)]
+    docs = [_read(p, kind) for p, kind in readable_sources(root)]
     entries, df = [], {}
     for d in docs:
         tf = _weighted_tf(d)
@@ -214,10 +237,10 @@ def build(root: str) -> dict:
 
 
 def _newest(root: str) -> float:
-    newest = max([os.path.getmtime(p) for p, _ in sources(root)] + [0.0])
+    newest = max([os.path.getmtime(long_path(p)) for p, _ in readable_sources(root)] + [0.0])
     gloss = os.path.join(root, "ubiquitous-language.md")
-    if os.path.exists(gloss):
-        newest = max(newest, os.path.getmtime(gloss))
+    if os.path.exists(long_path(gloss)):
+        newest = max(newest, os.path.getmtime(long_path(gloss)))
     return newest
 
 
@@ -231,7 +254,7 @@ def cached_index(root: str, path: str | None = None) -> dict | None:
             index = json.load(fh)
         known = sorted(e["path"] for e in index.get("docs", []))
         if (index.get("version") == INDEX_VERSION and index.get("root") == os.path.abspath(root)
-                and known == sorted(p for p, _ in sources(root))
+                and known == sorted(p for p, _ in readable_sources(root))
                 and index.get("newest_source", 0) >= newest and os.path.getmtime(path) >= newest
                 and index.get("fingerprint") == source_fingerprint(root)):
             return index

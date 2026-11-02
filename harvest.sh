@@ -3,7 +3,7 @@
 # the decision inbox. Sonnet via `claude -p` on the user's login, capped per session, per run and per day.
 # Only the ego layer is written to by the passes (harvest log in $EGO/log.md); superego and id memories are
 # edited by hand or by context-ingest. Memories land in ~/.claude and reach their layer on the next sync.
-# Usage: ./harvest.sh [--manifest ~/Codes/psique/manifest.json] [max_sessions]   (default 6)
+# Usage: ./harvest.sh [--manifest <root>/self/manifest.json] [max_sessions]   (default 6)
 set -Eeuo pipefail
 echo "== $(date '+%F %T') $0 $*"
 trap 'echo "FAILED at line $LINENO (exit $?)" >&2' ERR
@@ -12,7 +12,7 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 . "$REPO/lib.sh"
 HOME_UNIX="$HOME"
 HOME_WIN="$(native_path "$HOME")"
-MANIFEST="${SYNC_MANIFEST:-$HOME/Codes/psique/manifest.json}"
+MANIFEST="${SYNC_MANIFEST:-$(default_manifest "${PSIQUE_ROOT:-$(dirname "$REPO")}")}"
 MAX=6
 while [ $# -gt 0 ]; do
   case "$1" in

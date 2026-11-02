@@ -47,7 +47,7 @@ def main() -> int:
         coll = make_shared(remote, "owner", "collective-teamx", {
             "level": "collective", "name": "teamx", "mode": "readonly", "globals": ["glossary.md"], "rules": [],
             "dirs": [], "files": [], "company": "teamx"}, {"global/glossary.md": "# Glossary\n\n- **term-a**: shared.\n"})
-        make_shared(remote, "owner", "id-context", {"level": "id", "globals": ["g.md"], "rules": [], "dirs": [],
+        make_shared(remote, "owner", "id", {"level": "id", "globals": ["g.md"], "rules": [], "dirs": [],
                     "files": []}, {"global/g.md": f"{CANARY_ID}\n"})
         make_shared(remote, "owner", "ego-" + "na" + "mastex", {"level": "ego", "name": "o", "globals": ["g.md"],
                     "rules": [], "dirs": [], "files": []}, {"global/g.md": f"{CANARY_COMPANY}\n"})
@@ -69,9 +69,9 @@ def main() -> int:
                 if p.is_file() and ".git" not in p.parts:
                     assert name not in p.read_text(encoding="utf-8", errors="ignore"), f"{name} reached {p}"
         run(env, "update", "--push")
-        manifest = json.loads((home / "Codes" / "psique" / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((home / "Codes" / "self" / "manifest.json").read_text(encoding="utf-8"))
         assert [l["level"] for l in manifest["layers"]] == ["superego", "collective", "ego", "id"]
-        shutil.copy(home / "Codes" / "psique" / "manifest.json", base / "m.json")
+        shutil.copy(home / "Codes" / "self" / "manifest.json", base / "m.json")
         run(env, "uninstall", "--dry-run")
         assert (home / ".claude" / "glossary.md").exists(), "dry-run must change nothing"
         run(env, "uninstall")

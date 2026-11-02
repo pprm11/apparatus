@@ -48,7 +48,7 @@ jobs:
       - name: Vault sync test (fake bw)
         run: python -I scripts/test_vault_sync.py
       - name: Always-loaded context size (per-layer byte budget, delta vs main)
-        # --budget is this layer's number in psique/manifest.json "budgets"; the step fails over 90% of it.
+        # --budget is this layer's number in self/manifest.json "budgets"; the step fails over 90% of it.
         run: |
           git fetch --no-tags --depth=1 origin main
           python -I tools/context_budget.py --repo . --base origin/main --budget 12500
@@ -131,7 +131,7 @@ jobs:
       - name: OS layer tests (paths, key file, scheduler rendering, bootstrap, doctor)
         run: python -I -m unittest discover -s tests -p "test_cross_os.py" -v
       - name: Bootstrap dry run (changes nothing)
-        run: python -I tools/bootstrap.py --psique OWNER/REPO --dry-run --step packages --step vault --step auth --step repos --step jobs
+        run: python -I tools/bootstrap.py --self OWNER/REPO --dry-run --step packages --step vault --step auth --step repos --step jobs
       - name: Doctor runs and prints a checklist on this OS (failures are expected on a bare runner)
         shell: bash
         run: python -I tools/doctor.py --json > doctor.json || true; python -I -c "import json; d=json.load(open('doctor.json')); print(d['system'], len(d['checks']), 'checks')"

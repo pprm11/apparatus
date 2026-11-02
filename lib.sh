@@ -1,5 +1,15 @@
 # Shared helpers for sync.sh, restore.sh, weekly.sh and harvest.sh (sourced, not run).
 
+# default_manifest ROOT: prefer self, otherwise keep the legacy folder working.
+default_manifest() {
+  local root="$1"
+  if [ -f "$root/self/manifest.json" ]; then
+    printf '%s\n' "$root/self/manifest.json"
+  else
+    printf '%s\n' "$root/psique/manifest.json"
+  fi
+}
+
 # memory_project_key DIR: original home key for a memory folder shortened by layers.py, else its basename.
 memory_project_key() {
   if [ -f "$1/.project-key" ]; then

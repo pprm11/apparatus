@@ -47,9 +47,8 @@ A refusal or a failure prints a warning and does not abort the sync.
 
 ## What a new person installs from it
 
-The superego part of the install (`gh repo clone <OWNER>/superego`) can come from the public repo instead, so no
-invite to the private superego is needed. The collective is still shared by invite. Until the public repo exists, the
-invite flow in `docs/instalar.pt-BR.md` is the current one.
+The program and the superego layer install from the public repo (`gh repo clone <OWNER>/apparatus`), so no invite to
+the private working repo is needed. The collective is still shared by invite.
 
 An existing clone updates with `git pull --ff-only`. The mirror's linear history also supports the installer's
 normal layer update, which uses that command.
@@ -82,21 +81,21 @@ Run these yourself after reading the dry run. Nothing in the repo runs them.
 
 2. Create the empty public repo (no README, no license file; the tree brings its own):
 
-       gh repo create <OWNER>/superego-public --public --description "Generic agent-context layer (mirror, no source history)"
-       gh repo edit <OWNER>/superego-public --enable-issues=false --enable-wiki=false
+       gh repo create <OWNER>/apparatus --public --description "Generic agent-context layer (mirror, no source history)"
+       gh repo edit <OWNER>/apparatus --enable-issues=false --enable-wiki=false
 
 3. First publish:
 
-       python -I ~/Codes/superego/tools/mirror_public.py --target ~/Codes/superego-public-tree --publish --remote https://github.com/<OWNER>/superego-public.git
+       python -I ~/Codes/superego/tools/mirror_public.py --target ~/Codes/apparatus-tree --publish --remote https://github.com/<OWNER>/apparatus.git
 
-4. Check: `gh repo view <OWNER>/superego-public --web`, and `git ls-remote https://github.com/<OWNER>/superego-public.git`
+4. Check: `gh repo view <OWNER>/apparatus --web`, and `git ls-remote https://github.com/<OWNER>/apparatus.git`
    shows one commit on `main`.
 
 5. Later publishes happen on every `sync.sh --push` once the environment has:
 
        PUBLIC_MIRROR=1
-       PUBLIC_MIRROR_DIR=~/Codes/superego-public-tree
-       PUBLIC_MIRROR_REMOTE=https://github.com/<OWNER>/superego-public.git
+       PUBLIC_MIRROR_DIR=~/Codes/apparatus-tree
+       PUBLIC_MIRROR_REMOTE=https://github.com/<OWNER>/apparatus.git
 
 Pull requests cannot be switched off for a public GitHub repo. The `MIRROR.md` notice says the mirror accepts none;
 close any that arrive.

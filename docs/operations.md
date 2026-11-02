@@ -11,7 +11,7 @@ layer checkouts (set with `--root` or `PSIQUE_ROOT`).
 |---|---|---|
 | superego | `superego/` in this repo | generic skills, agent rules, harness adapters |
 | ego | `ego-<company>` (for example `ego-<company>`) | project memories, work skills, glossary, team maps, plans |
-| id | `id-context` | personal development plan, career, preferences, settings; sensitive paths are sealed |
+| id | `id` | personal development plan, career, preferences, settings; sensitive paths are sealed |
 
 Three things decide where a file goes:
 
@@ -26,7 +26,7 @@ Three things decide where a file goes:
    the id layer, `sealed` paths. A memory may also carry `sealed: true` in its frontmatter: the export skips it
    under any project key, so a repo move (which renames the key) cannot leak it the way a fixed path did on
    31/10/2026; the id repo's `seal.sh` and pre-commit honor the same flag.
-3. `psique/manifest.json` names the active layers in load order, with the local path and the GitHub repo
+3. `self/manifest.json` names the active layers in load order, with the local path and the GitHub repo
    of each, and the default level.
 
 `tools/layers.py export` copies each file to its layer repo and removes files under the managed folders
@@ -39,8 +39,8 @@ order, and appends any `MEMORY.md` index lines a layered restore left out.
 ## Installing for another person
 
 A teammate who is not the owner installs with `install.sh` (macOS, Linux) or `install.ps1` (Windows), which find
-Python 3.10+ and run `tools/onboard.py`. `init` creates the person's own private `psique` and `id-context` repos from
-`templates/psique` and `templates/id`, clones the shared layers read-only (`--layer collective:NAME=URL`,
+Python 3.10+ and run `tools/onboard.py`. `init` creates the person's own private `self` and `id` repos from
+`templates/self` and `templates/id`, clones the shared layers read-only (`--layer collective:NAME=URL`,
 `--layer ego:NAME=URL`), restores them into `~/.claude`, composes `CLAUDE.md` and `AGENTS.md`, registers one
 Python `update` job for the OS and runs the doctor (profile `person`: no vault, no bash). `update`, `contribute`
 (PR from a worktree) and `uninstall` come with it. A privacy gate (`ci/privacy-terms.json`, `tools/privacy.py`)
@@ -51,7 +51,7 @@ companies' repos. Skills that cannot ship yet are listed in `superego/layer.json
 
 ## Readonly layers (collective)
 
-A layer entry in `psique/manifest.json` with `"mode": "readonly"` is a shared repo that many people consume
+A layer entry in `self/manifest.json` with `"mode": "readonly"` is a shared repo that many people consume
 (the `collective` level, between superego and ego). It is restored and composed like any layer, but
 `layers.py export --all` skips it, `sync.sh` never commits or pushes into it, and `layers.py pull` brings it
 to the entry's `ref` (tag or SHA) or fast-forwards it. Its skills carry `level: collective`, so a restored
@@ -66,8 +66,8 @@ Its always-loaded files count against the same 32 KiB Codex budget as every othe
 | `ClaudeContextHarvest` | every hour at :30 | `harvest.sh`: each session the user archived becomes a redacted digest (`tools/harvest.py`); Sonnet (`prompts/harvest.md`) writes a memory or a skill draft only when worth it. Memories go to `~/.claude` and reach their layer on the next sync; the harvest log goes to the ego layer's `log.md` | Claude login, `--max-budget-usd 0.60` per session, at most 6 sessions per run, 20 per day |
 | `ClaudeContextWeekly` | Mondays 09:00 | `weekly.sh`: decay score, then Sonnet reads the week's prompts and the ego layer's memory, fixes lint findings, adds memories, writes proposals and a report in the ego repo, commits there and syncs | Claude login, `--max-budget-usd 3`; API keys are unset |
 
-`psique/schedule.ps1` registers the Windows tasks. All scripts take `--manifest` (default
-`$SYNC_MANIFEST`, then `<your-folder>/psique/manifest.json`). Tools, prompts, `.work/`, `.harvest/` and the
+`self/schedule.ps1` registers the Windows tasks. All scripts take `--manifest` (default
+`$SYNC_MANIFEST`, then `<your-folder>/self/manifest.json`). Tools, prompts, `.work/`, `.harvest/` and the
 locks (`.sync.lock/`, `.memory.lock/`) stay in this repo; the weekly pass holds `.sync.lock/` for its whole
 run, so a skipped hourly sync exits 75. `sync.sh` refuses to run without `~/.claude/CLAUDE.md` and 20 or
 more memories, aborts when a layer would lose more than 50 tracked files in one commit, and never commits a
@@ -80,12 +80,12 @@ layers.
 
 ## Restore on a new machine
 
-Needs Git for Windows, Python 3.10+, GitHub CLI and Claude Code. The normal path is `psique/restore.sh`,
+Needs Git for Windows, Python 3.10+, GitHub CLI and Claude Code. The normal path is `self/restore.sh`,
 which clones the three layers, restores them in order (this repo's `restore.sh --from <layer>` runs once per
 layer), composes `CLAUDE.md` and registers the tasks. To restore only this layer:
 
-    git clone --filter=blob:none https://github.com/<user>/superego <your-folder>/superego
-    <your-folder>/superego/restore.sh --from <your-folder>/superego/superego
+    git clone --filter=blob:none https://github.com/<user>/apparatus <your-folder>/apparatus
+    <your-folder>/apparatus/restore.sh --from <your-folder>/apparatus/superego
     claude /login
 
 `--filter=blob:none` fetches history blobs on demand, so the clone is about the size of the current tree.
@@ -191,9 +191,9 @@ id layer (`<id repo>/sealed/secrets/`), with no unlock day to day: encrypting ne
 | Piece | Where |
 |---|---|
 | Paths to protect (paths only) | `~/.claude/scripts/secrets-manifest.txt` (id layer); new finds are appended automatically |
-| Public key | `AGE_RECIPIENT` or `~/.config/id-context/recipient` (the same file `id-context/tools/seal.sh` uses) |
+| Public key | `AGE_RECIPIENT` or `~/.config/id-context/recipient` (the same file `id/tools/seal.sh` uses) |
 | Last-seen sha256 (no values) | `~/.claude/state/secrets-hashes.json`; only files whose hash changed are re-encrypted |
-| Output | `<id repo>/sealed/secrets/<id>.age` + `manifest.json.age`; the destination must be a repo whose `layer.json` level is `id` (default: the id layer of `<your-folder>/psique/manifest.json`, or `SECRETS_DEST`) |
+| Output | `<id repo>/sealed/secrets/<id>.age` + `manifest.json.age`; the destination must be a repo whose `layer.json` level is `id` (default: the id layer of `<your-folder>/self/manifest.json`, or `SECRETS_DEST`) |
 | Private key | Bitwarden note `age-identity` (`restore --identity-from-bw`), never on disk after the restore |
 
 `sync.sh` runs `secrets_backup.py run` every hour when `SECRETS_BACKUP=1` (`setx SECRETS_BACKUP 1`). The id repo's own commit and
@@ -205,7 +205,7 @@ Restore (one manual Bitwarden unlock; never overwrites existing files):
 
 ```bash
 export BW_SESSION="$(bw unlock --raw)"
-python -I <your-folder>/superego/tools/secrets_backup.py restore --identity-from-bw
+python -I <your-folder>/apparatus/tools/secrets_backup.py restore --identity-from-bw
 ```
 
 CI gates and how to run them locally: [ci-gates.md](ci-gates.md) (`python -I ci/gates.py`).
@@ -219,3 +219,33 @@ It sees only pushes made from a clone that has the hook; another machine or the 
 A deliberate rewrite: `PUSH_GUARD_ALLOW=1 git push ...` (the hook says it was used). Other protected branches:
 `PUSH_GUARD_BRANCHES="main,release"`. An existing pre-push hook that is not ours is kept, and the install says so.
 
+
+## Branch lock (keep the live checkout on its default branch)
+
+`sync.sh` pulls the readonly layers with `--ff-only`, so the checkout it runs from must stay on its default branch.
+A task that commits there on its own branch breaks the next sync (it happened twice on 2026-11-02). `sync.sh`
+installs `tools/branch_lock.py` as a `pre-commit` hook in that checkout (in `core.hooksPath` when set; an existing
+pre-commit hook is kept and chained as `pre-commit.chained`). The hook refuses a commit when the branch is not the
+default one and prints the worktree command. Passes: `SYNC_COMMIT=1` (set by `sync.sh` and `weekly.sh`), a linked
+worktree, a repo without `origin`, a rebase in progress. `pull` also aborts early, naming the branch and
+`git -C <path> switch main`, instead of a bare `pull failed`. Neither switches branches by itself.
+
+Existing installs may still have psique/id-context/superego folders: they keep working, and tools/migrate.py renames them.
+
+### Persona skills and local aliases
+
+An active `persona` layer supplies canonical skills to both default and company compositions. The id layer can declare `"skill_aliases": "locales/pt-BR/skills.json"` in `layer.json`. The referenced JSON has the shape `{"aliases": {"old-name": {"target": "canonical-name", "description": "Local trigger text"}}}`. Targets must exist in the selected layers. An alias with the same name as its target changes the description in the composed copy; other aliases contain a short reference to the canonical skill. Existing company or id wrappers take precedence over generated aliases. Name collisions and unknown targets stop composition before writing.
+
+Generated skills are recorded in provenance markers so export does not treat them as private skills. The default home and Codex home retain unmanaged folders. A company output is an owned, disposable composition: its skills folder is synchronized as a whole. `harness/skills.json` filters Claude-only canonical skills and their generated aliases from Codex.
+
+For a migration where the existing home imports must remain untouched, pass `--skills-only`. This updates only persona skill copies and Codex skill links, retaining `CLAUDE.md`, `AGENTS.md`, globals and memory indexes. It combines the current home's Claude-only filter with the selected superego filter.
+
+### Reviewed persona transition
+
+`tools/persona_migration.py` accepts a reviewed JSON plan with `skills` mapping each folder name to its SHA-256 tree hash. Obtain the hash with `compose.tree_hash(path)` from the checked-out runtime; record `marker_sha256` when `skills/.persona-skills.json` exists. Run `python -I tools/persona_migration.py --plan PLAN --skills SKILLS_DIR --backup NEW_BACKUP_DIR` first to validate and preview. Adding `--apply` copies and verifies every selected folder and the marker in the new backup before removing selected folders. The backup must be outside the skills tree. If interrupted, preserve the backup and reconcile the home and marker before retrying; no automatic rollback is claimed. This is a narrow transition of reviewed skill folders, not a restore of globals or an approval to run it on a live home.
+
+Generated folders are recorded with tree hashes. A changed folder, an old receipt without hashes, a new private wrapper that collides with a generated alias, or an unmanaged alias folder stops synchronization and export for review. An unmanaged canonical folder is adopted only when its complete tree matches the readonly source. Orphaned private references are retained.
+
+A selected private layer can bind additional local wrappers with `"skill_policies": {"canonical-name": ["local-wrapper"]}` in `layer.json`. Each target must be a selected persona skill and every wrapper must belong to that layer. Composition combines these bindings with alias-derived personal wrappers, applies only selected company layers, and links every local policy from the composed canonical skill without recursively invoking it.
+
+Skill refresh stages the managed trees and authoritative receipt together under an OS lock. An interrupted swap is recovered on the next normal compose; a dry-run or `onboard update` preflight stops on a pending transaction without writing. If recovery reports an intervening edit or a malformed transaction, preserve the transaction and local files for manual review. This protects the skill batch and its receipt; it does not make the rest of a company home or multiple homes one atomic transaction.

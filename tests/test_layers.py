@@ -309,6 +309,40 @@ class ReadonlyLayerTest(LayerSandbox):
         subprocess.run(["git", "init", "-q", self.dirs["collective"]], check=True)
         self.assertEqual(layers.pull(self.man), ["[collective] no remote, nothing to pull"])
 
+    def _readonly_clone(self):
+        """A readonly collective cloned from a bare remote; returns the clone path."""
+        origin, clone = os.path.join(self.tmp, "origin.git"), os.path.join(self.tmp, "ro-clone")
+        git = lambda *a, cwd=None: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True, text=True)  # noqa: E731
+        git("init", "-q", "--bare", "-b", "main", origin)
+        git("clone", "-q", origin, clone)
+        write(os.path.join(clone, "layer.json"), json.dumps({"level": "collective", "globals": [], "rules": [], "dirs": [], "files": []}))
+        for key, val in (("user.email", "t@e.x"), ("user.name", "t"), ("commit.gpgsign", "false")):
+            git("config", key, val, cwd=clone)
+        git("add", ".", cwd=clone)
+        git("commit", "-q", "-m", "init", cwd=clone)
+        git("push", "-q", "origin", "HEAD:main", cwd=clone)
+        git("fetch", "-q", cwd=clone)
+        git("branch", "-q", "--set-upstream-to=origin/main", "main", cwd=clone)
+        git("remote", "set-head", "origin", "main", cwd=clone)
+        self.man = {"layers": [{"level": "collective", "path": posix(clone), "active": True, "mode": "readonly"}]}
+        return clone, git
+
+    def test_pull_aborts_naming_the_branch_when_a_readonly_layer_is_not_on_its_default_branch(self):
+        clone, git = self._readonly_clone()
+        git("switch", "-q", "-c", "codex/task", cwd=clone)
+        with self.assertRaises(SystemExit) as ctx:
+            layers.pull(self.man)
+        msg = str(ctx.exception)
+        self.assertIn("codex/task", msg)
+        self.assertIn("switch main", msg)
+        self.assertNotIn("pull failed", msg)
+        branch = subprocess.run(["git", "-C", clone, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
+        self.assertEqual(branch, "codex/task")  # never auto-switches
+
+    def test_pull_fast_forwards_a_readonly_layer_on_its_default_branch(self):
+        self._readonly_clone()
+        self.assertEqual(layers.pull(self.man), ["[collective] fetch --tags --quiet", "[collective] pull --ff-only --quiet"])
+
 
 class SealedPathsTest(LayerSandbox):
     """Paths listed under `sealed` in layer.json never reach the repo in plain text."""

@@ -15,6 +15,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import roots  # noqa: E402
 import decisions  # noqa: E402
 from common import require_codex  # noqa: E402
 
@@ -26,8 +27,8 @@ QUESTION = ("Do not read any file and do not run any command. Answer only from t
 # follow the task, so the adapter's delegate helper is the fact to probe now.
 EXPECT = ("context-recall", "context-ingest", "decisions.py", "delegate.py")
 def default_repos() -> tuple:
-    """Repos to probe, from "canary_repos" of the active ego layer's layer.json (psique manifest); none = neutral only."""
-    manifest = os.environ.get("SYNC_MANIFEST", os.path.expanduser("~/Codes/psique/manifest.json"))
+    """Repos to probe, from "canary_repos" of the active ego layer's layer.json (self manifest); none = neutral only."""
+    manifest = os.environ.get("SYNC_MANIFEST", roots.default_manifest())
     try:
         with open(manifest, encoding="utf-8") as fh:
             layers = json.load(fh)["layers"]

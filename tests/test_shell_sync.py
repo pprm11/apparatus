@@ -40,6 +40,26 @@ def memory_text(name: str, level: str = "", body: str = "body") -> str:
     return f"---\nname: {name}\ndescription: d\n{lvl}metadata:\n  type: reference\n  keywords: a, b\n---\n{body}\n"
 
 
+@unittest.skipUnless(BASH, "needs bash")
+class DefaultManifestShellTest(unittest.TestCase):
+    def resolve(self, root):
+        res = subprocess.run([BASH, "-c", 'source "$1"; default_manifest "$2"', "_",
+                              posix(os.path.join(ROOT, "lib.sh")), posix(root)],
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        return res.stdout.strip()
+
+    def test_self_wins_and_legacy_is_a_fallback(self):
+        with tempfile.TemporaryDirectory(prefix="manifest names ") as tmp:
+            legacy = os.path.join(tmp, "psique", "manifest.json")
+            current = os.path.join(tmp, "self", "manifest.json")
+            self.assertEqual(self.resolve(tmp), posix(legacy))
+            write(legacy, "{}")
+            self.assertEqual(self.resolve(tmp), posix(legacy))
+            write(current, "{}")
+            self.assertEqual(self.resolve(tmp), posix(current))
+
+
 @unittest.skipUnless(BASH and shutil.which("git"), "needs Git Bash and git")
 class SyncSmokeTest(unittest.TestCase):
     def setUp(self):
@@ -50,7 +70,7 @@ class SyncSmokeTest(unittest.TestCase):
         self.repo = os.path.join(self.tmp, "superego")  # the superego layer is also the repo that holds sync.sh
         self.ego = os.path.join(self.tmp, "ego-test")
         self.id = os.path.join(self.tmp, "id-test")
-        self.manifest = os.path.join(self.tmp, "psique", "manifest.json")
+        self.manifest = os.path.join(self.tmp, "self", "manifest.json")
         os.makedirs(self.home)
         self.env = dict(os.environ, HOME=self.home, USERPROFILE=self.home, CLAUDE_HOME=posix(self.claude),
                         GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
@@ -385,8 +405,56 @@ class SyncSmokeTest(unittest.TestCase):
         self.assertIn("render=\"${render//$'\\r'/}\"", src)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_readonly_persona_pull_refreshes_skills(self):
+        persona = os.path.join(self.tmp, "persona")
+        self.git(self.tmp, "init", "-q", "-b", "main", persona)
+        write(os.path.join(persona, "layer.json"), json.dumps({"level": "persona", "mode": "readonly"}))
+        write(os.path.join(persona, "skills", "canonical", "SKILL.md"), "---\nname: canonical\ndescription: test\n---\nupdated\n")
+        self.git(persona, "add", "-A")
+        self.git(persona, "commit", "-qm", "persona")
+        remote = os.path.join(self.tmp, "persona-remote.git")
+        self.git(self.tmp, "init", "-q", "--bare", remote)
+        self.git(persona, "remote", "add", "origin", posix(remote))
+        self.git(persona, "push", "-q", "-u", "origin", "main")
+        man = json.load(open(self.manifest, encoding="utf-8"))
+        man["layers"].insert(1, {"level": "persona", "path": posix(persona), "mode": "readonly", "active": True})
+        write(self.manifest, json.dumps(man))
+        result = self.sync()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        writer = os.path.join(self.tmp, "persona-writer")
+        self.git(self.tmp, "clone", "-q", "-b", "main", posix(remote), writer)
+        write(os.path.join(writer, "skills", "canonical", "SKILL.md"), "---\nname: canonical\ndescription: test\n---\nnew upstream\n")
+        self.git(writer, "add", "-A")
+        self.git(writer, "commit", "-qm", "upstream")
+        self.git(writer, "push", "-q", "origin", "main")
+        result = self.sync()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with open(os.path.join(self.claude, "skills", "canonical", "SKILL.md"), encoding="utf-8") as fh:
+            self.assertIn("new upstream", fh.read())
+
+    def test_persona_refresh_failure_opens_one_decision_without_export(self):
+        persona = os.path.join(self.tmp, "persona")
+        self.git(self.tmp, "init", "-q", "-b", "main", persona)
+        write(os.path.join(persona, "layer.json"), json.dumps({"level": "persona", "mode": "readonly"}))
+        write(os.path.join(persona, "skills", "canonical", "SKILL.md"), "---\nname: canonical\ndescription: test\n---\nsource\n")
+        write(os.path.join(self.claude, "skills", "canonical", "SKILL.md"), "private edited content\n")
+        with open(self.manifest, encoding="utf-8") as fh:
+            man = json.load(fh)
+        man["layers"].insert(1, {"level": "persona", "path": posix(persona), "mode": "readonly", "active": True})
+        write(self.manifest, json.dumps(man))
+        write(os.path.join(self.claude, "projects", "new", "memory", "new.md"), memory_text("new"))
+        for _ in range(2):
+            result = self.sync()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(os.path.exists(os.path.join(self.ego, "memory", "new", "new.md")))
+        with open(os.path.join(self.claude, "decisions", "inbox.json"), encoding="utf-8") as fh:
+            inbox = json.load(fh)
+        items = [item for item in inbox["items"] if item["title"] == "Persona skill refresh blocked"]
+        self.assertEqual(len(items), 1)
+        self.assertNotIn("private edited content", json.dumps(items))
+        with open(os.path.join(self.claude, "skills", "canonical", "SKILL.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "private edited content\n")
+
 
 
 class LibNativePathTest(unittest.TestCase):
@@ -413,3 +481,7 @@ class LibNativePathTest(unittest.TestCase):
                 text = fh.read()
             self.assertNotIn("cygpath", text, name)
             self.assertIn("native_path", text, name)
+
+
+if __name__ == "__main__":
+    unittest.main()

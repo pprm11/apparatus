@@ -9,6 +9,7 @@ and are unverified on a real machine; `doctor` reports a missing folder as a war
 from __future__ import annotations
 
 import glob
+import ntpath
 import os
 import shutil
 import sys
@@ -26,6 +27,25 @@ def system(plat: str | None = None) -> str:
     if p in ("darwin", MACOS):
         return MACOS
     return LINUX
+
+
+LONG_PATH_THRESHOLD = 240  # Windows refuses a file path of 260 or more characters (a folder: 248) unless prefixed
+EXTENDED_PREFIX = chr(92) * 2 + "?" + chr(92)
+
+
+def long_path(path: Path | str, plat: str | None = None) -> str:
+    """`path` ready for a file call (open, stat, copy, listdir, replace). On Windows a path near MAX_PATH gets
+    the extended-length prefix (EXTENDED_PREFIX, with UNC paths under its UNC folder), which lifts the 260
+    limit without any registry or system setting; the prefix turns normalization off, so the path is made
+    absolute and backslash-only first. Anywhere else, and for a short path, it comes back unchanged. Use it at
+    the call site only: keep the plain path in logs, indexes and comparisons."""
+    p = os.fspath(path)
+    if system(plat) != WINDOWS or len(p) < LONG_PATH_THRESHOLD or p.startswith(EXTENDED_PREFIX):
+        return p
+    full = ntpath.abspath(p)
+    if full.startswith("\\\\"):
+        return EXTENDED_PREFIX + "UNC\\" + full[2:]
+    return EXTENDED_PREFIX + full
 
 
 def _env(env: Mapping[str, str] | None) -> Mapping[str, str]:

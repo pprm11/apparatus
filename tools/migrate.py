@@ -50,8 +50,50 @@ def swap_repo(url: str, old: str, new: str) -> str:
     return re.sub(r"(github\.com[:/][^/\s]+/)" + re.escape(old) + r"((?:\.git)?)$", lambda m: m.group(1) + new + m.group(2), url)
 
 
+OWN_LEVELS = ("ego", "id", "collective")  # layers that belong to the person or the team, never to the shared ones
+
+
+def skill_level(claude_home: Path, name: str) -> str:
+    """The `level:` of ~/.claude/skills/<name>/SKILL.md, or "" when there is none."""
+    try:
+        head = (claude_home / "skills" / name / "SKILL.md").read_text(encoding="utf-8").splitlines()[:12]
+    except OSError:
+        return ""
+    for line in head:
+        if line.startswith("level:"):
+            return line.split(":", 1)[1].strip().strip("\"'")
+    return ""
+
+
+def is_alias(claude_home: Path, old: str, new: str) -> bool:
+    """True for a localized alias skill that the id layer composes: its body points at the canonical skill."""
+    try:
+        text = (claude_home / "skills" / old / "SKILL.md").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return f"../{new}/SKILL.md" in text
+
+
+def owned_by_a_layer(manifest: dict, rel: str) -> bool:
+    """True when a layer of the person or the team (ego, id, collective) lists this rule or global in its layer.json."""
+    base = Path(rel).name
+    for layer in manifest.get("layers", []):
+        if layer.get("level") not in OWN_LEVELS:
+            continue
+        try:
+            cfg = json.loads((Path(os.path.expanduser(layer.get("path", ""))) / "layer.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if base in cfg.get("rules", []) or base in cfg.get("globals", []):
+            return True
+    return False
+
+
 def plan(manifest: dict, claude_home: Path, rename_map: dict) -> list[dict]:
-    """What is pending, as [{kind, old, new, where}]."""
+    """What is pending, as [{kind, old, new, where}]. A skill whose own `level:` is ego, id or collective belongs to
+    the person's layer, not to the shared one that was renamed, so it is left alone; so is a localized alias skill
+    (its body points at the canonical skill) and a retired rule that a
+    layer of the person lists in its layer.json."""
     out: list[dict] = []
     for layer in manifest.get("layers", []):
         new = rename_map["repos"].get(repo_name(layer.get("repo", "")))
@@ -62,12 +104,19 @@ def plan(manifest: dict, claude_home: Path, rename_map: dict) -> list[dict]:
             out.append({"kind": "file", "old": old, "new": new, "where": str(claude_home)})
         elif (claude_home / old).exists():  # both exist: the layer already shipped the new one, the old is stale
             out.append({"kind": "stale", "old": old, "new": new, "where": str(claude_home)})
-    for old, new in rename_map["skills"].items():
+    persona_active = any(l.get("level") == "persona" and l.get("active", True) for l in manifest.get("layers", []))
+    for old, new in (() if persona_active else rename_map["skills"].items()):
+        if skill_level(claude_home, old) in OWN_LEVELS or is_alias(claude_home, old, new):
+            continue
         if (claude_home / "skills" / old).is_dir() and not (claude_home / "skills" / new).exists():
             out.append({"kind": "skill", "old": old, "new": new, "where": str(claude_home / "skills")})
         elif (claude_home / "skills" / old).is_dir():
             out.append({"kind": "stale", "old": f"skills/{old}", "new": f"skills/{new}", "where": str(claude_home)})
     for old, moved_to in rename_map.get("retired", {}).items():
+        if old.startswith("skills/") and skill_level(claude_home, old.split("/", 1)[1]) in OWN_LEVELS:
+            continue
+        if owned_by_a_layer(manifest, old):
+            continue
         if (claude_home / old).exists():
             out.append({"kind": "retired", "old": old, "new": moved_to, "where": str(claude_home)})
     return out
@@ -87,6 +136,8 @@ def apply(manifest_path: Path, claude_home: Path, rename_map: dict, repos: bool,
     done: list[str] = []
     names = {Path(o).name: Path(n).name for o, n in rename_map["files"].items()}
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if any(l.get("level") == "persona" and l.get("active", True) for l in manifest.get("layers", [])):
+        return ["preserved legacy names and active imports; persona migration requires explicit reviewed transition"]
     for ch in plan(manifest, claude_home, rename_map):
         if ch["kind"] == "file":
             target = Path(ch["where"]) / ch["new"]

@@ -3,7 +3,7 @@
 
 Every file that reaches the Codex AGENTS.md (and the Claude CLAUDE.md imports) belongs to one layer: the
 `.md` globals and the `rules` of each layer.json, the harness adapter (budget key "adapter", the largest
-harness/*.md), and the root CLAUDE.md (key "root"). psique/manifest.json carries the budgets:
+harness/*.md), and the root CLAUDE.md (key "root"). self/manifest.json carries the budgets:
 
     "budgets": {"superego": 12500, "collective": 1500, "ego": 6800, "id": 6600, "adapter": 2700, "root": 900}
 
@@ -268,7 +268,7 @@ def add_inbox_items(rep: dict, home: str) -> list[str]:
             detail = msg + ". Cut candidates (move to a skill, keep a one-line pointer): " + "; ".join(
                 f"{label} ({n} bytes)" for label, n in cuts)
             decisions.new_item(data, "manual", title, level="superego", detail=detail,
-                               options=["A move the candidates to a skill", "B reallocate budget between layers (psique manifest)"],
+                               options=["A move the candidates to a skill", "B reallocate budget between layers (self manifest)"],
                                source="tools/context_budget.py")
             added.append(title)
         if added:
@@ -279,7 +279,7 @@ def add_inbox_items(rep: dict, home: str) -> list[str]:
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--manifest", default=os.environ.get("SYNC_MANIFEST"), help="default: <root>/psique/manifest.json")
+    ap.add_argument("--manifest", default=os.environ.get("SYNC_MANIFEST"), help="default: <root>/self/manifest.json")
     ap.add_argument("--root", help="folder holding the layer repos (default: $PSIQUE_ROOT, else the parent of this checkout)")
     ap.add_argument("--claude-home", default=os.path.expanduser("~/.claude"))
     ap.add_argument("--json", action="store_true")
@@ -287,7 +287,7 @@ def main() -> int:
     ap.add_argument("--list-band", action="store_true", help="print only the budget keys in the band or over, one per line")
     ap.add_argument("--repo", help="layer repo checkout: sizes of its always-loaded files (CI)")
     ap.add_argument("--base", help="with --repo: git ref to show the delta against")
-    ap.add_argument("--budget", type=int, help="with --repo: the layer's budget from the psique manifest; exit 1 over the band")
+    ap.add_argument("--budget", type=int, help="with --repo: the layer's budget from the self manifest; exit 1 over the band")
     args = ap.parse_args()
     if args.repo:
         now = repo_sizes(args.repo)

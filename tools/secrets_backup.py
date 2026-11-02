@@ -12,19 +12,25 @@ Layout in <id layer>/sealed/secrets: <id>.age (one per file, id = sha256(path)[:
 and manifest.json.age (path, sha256 of the plaintext, size, removed flag; encrypted too).
 Local state ~/.claude/state/secrets-hashes.json holds paths and hashes only, never values.
 Removed files are flagged and kept in the backup; nothing is ever deleted from it or from the manifest.
-Output lists paths and counts only. Env: SECRETS_DEST (default: the id layer of the psique manifest), AGE_RECIPIENT or ~/.config/id-context/recipient,
+Output lists paths and counts only. Env: SECRETS_DEST (default: the id layer of the self manifest), AGE_RECIPIENT or ~/.config/id-context/recipient,
 AGE_IDENTITY, SECRETS_INCLUDE_CODEX_AUTH=1, and for tests AGE_CMD, SECRETS_HOME/STATE/MANIFEST, SECRETS_DECISIONS_CMD.
 """
 import argparse, datetime, hashlib, json, os, shlex, shutil, subprocess, sys, time
+
+import importlib.util
+
+_roots_spec = importlib.util.spec_from_file_location("roots", os.path.join(os.path.dirname(__file__), "roots.py"))
+roots = importlib.util.module_from_spec(_roots_spec)
+_roots_spec.loader.exec_module(roots)
 
 HOME = os.environ.get("SECRETS_HOME") or os.path.expanduser("~")
 STATE_DIR = os.environ.get("SECRETS_STATE") or os.path.join(HOME, ".claude", "state")
 HASHES = os.path.join(STATE_DIR, "secrets-hashes.json")
 MANIFEST = os.environ.get("SECRETS_MANIFEST") or os.path.join(HOME, ".claude", "scripts", "secrets-manifest.txt")
 RECIPIENT_FILES = [os.environ["AGE_RECIPIENTS_FILE"]] if os.environ.get("AGE_RECIPIENTS_FILE") else [
-    os.path.join(HOME, ".config", "id-context", "recipient"),  # shared with id-context/tools/seal.sh: ONE age identity
+    os.path.join(HOME, ".config", "id-context", "recipient"),  # legacy folder name, kept so existing recipients keep working
     os.path.join(STATE_DIR, "age-recipients.txt")]
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # superego (or its worktree)
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # apparatus (or its worktree)
 AGE = shlex.split(os.environ.get("AGE_CMD", "age"))
 AGE[0] = shutil.which(AGE[0]) or AGE[0]
 DECISIONS = shlex.split(os.environ.get("SECRETS_DECISIONS_CMD", f'python -I "{REPO}/tools/decisions.py"'))
@@ -170,10 +176,10 @@ def sealed_dir(dest):
 
 
 def default_dest():
-    """SECRETS_DEST, else the active id layer of the psique manifest."""
+    """SECRETS_DEST, else the active id layer of the self manifest."""
     if os.environ.get("SECRETS_DEST"):
         return os.environ["SECRETS_DEST"]
-    man = os.environ.get("SYNC_MANIFEST") or os.path.join(HOME, "Codes", "psique", "manifest.json")
+    man = os.environ.get("SYNC_MANIFEST") or roots.default_manifest()
     try:
         for l in json.load(open(man, encoding="utf-8"))["layers"]:
             if l["level"] == "id" and l.get("active", True):
@@ -327,7 +333,7 @@ def main(argv):
             print(f"{st:<10} {p}")
         return 0
     if a.cmd in ("backup", "run", "restore") and not dest:
-        print("no destination: set SECRETS_DEST or keep an active id layer in ~/Codes/psique/manifest.json")
+        print("no destination: set SECRETS_DEST or keep an active id layer in <root>/self/manifest.json")
         return 2
     if a.cmd == "restore":
         if not (a.identity or a.identity_from_bw):

@@ -1,17 +1,17 @@
-# superego
+# apparatus
 
 The program for a layered agent context for Claude Code and Codex. Its superego layer lives in `superego/`
 and holds universal agent rules, generic skills and harness adapters. The repository root holds the tooling,
 templates for other layers and CI gates that keep company and personal content out.
 
-Note: this repo is being renamed to `apparatus`, with fresh history. The other repos follow (`psique` to
-`self`, `id-context` to `id`). Commands and URLs below keep the current names until the rename lands.
+Naming: this program is `apparatus`; the public repository has snapshot history (see
+[Public mirror](docs/public-mirror.md)). The other repos were renamed too (`psique` to `self`, `id-context` to `id`);
+`tools/migrate.py` maps every old name.
 
 ## The layers
 
 An agent reads a stack of layers. Superego lives in this repo at `superego/`. Other layers have their own repos.
-The `self` manifest (`manifest.json` in the
-meta repo, today called `psique`) lists the layers in load order. `tools/onboard.py` installs the stack.
+The `self` repo holds `manifest.json`, which lists the layers in load order. `tools/onboard.py` installs the stack.
 `~/.claude` stays the source of truth; Codex gets a rendered copy.
 
 | Level | What it holds | Who owns it |
@@ -32,9 +32,9 @@ Details: [docs/operations.md](docs/operations.md).
 
 Needs Python 3.10+, Git and a Claude Code or Codex install.
 
-    git clone https://github.com/<user>/superego <your-folder>/superego
-    <your-folder>/superego/install.sh          # macOS, Linux
-    <your-folder>/superego/install.ps1         # Windows
+    git clone https://github.com/<user>/apparatus <your-folder>/apparatus
+    <your-folder>/apparatus/install.sh          # macOS, Linux
+    <your-folder>/apparatus/install.ps1         # Windows
 
 The installer finds Python and runs `tools/onboard.py init`, which creates your private `self` and `id` repos
 from `templates/`, restores the layers into `~/.claude`, composes `CLAUDE.md` and `AGENTS.md`, registers an

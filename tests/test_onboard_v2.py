@@ -116,14 +116,14 @@ class CollectiveStepTest(V2):
         self.assertIn("@testperson", (clone / "CODEOWNERS").read_text(encoding="utf-8"))
         self.assertNotIn("{{", (clone / "CODEOWNERS").read_text(encoding="utf-8"))
         self.assertNotIn("<team>", (clone / "layer.json").read_text(encoding="utf-8"))
-        manifest = json.loads((self.home / "Codes" / "psique" / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.home / "Codes" / "self" / "manifest.json").read_text(encoding="utf-8"))
         self.assertIn("collective", [l["level"] for l in manifest["layers"]])
 
     def test_skip_the_collective(self):
         argv = ["init", "--name", "Test Person", "--github", "testperson", "--yes", "--git-host", f"local:{self.remote}",
                 "--jobs", "skip", "--vault", "skip", "--no-collective"]
         self.assertEqual(self.run_cli(argv), 0, "\n".join(self.lines))
-        manifest = json.loads((self.home / "Codes" / "psique" / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.home / "Codes" / "self" / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual([l["level"] for l in manifest["layers"]], ["superego", "id"])
 
     def test_without_a_choice_it_asks_for_one_in_flags(self):
@@ -156,7 +156,7 @@ class VaultStepTest(V2):
         recipient = (self.home / ".config" / "id-context" / "recipient").read_text(encoding="utf-8").strip()
         self.assertEqual(recipient, RECIPIENT)
         self.assertNotIn(SECRET, self.all_text() + "\n".join(self.lines), "the private key reaches neither disk nor output")
-        raw = json.loads((self.home / "Codes" / "psique" / "manifest.json").read_text(encoding="utf-8"))
+        raw = json.loads((self.home / "Codes" / "self" / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(raw["jobs"], ["update", "secrets"])
         self.assertIn("superego-testperson-secrets", FakeBackend.installed)
         self.assertTrue(any(c[:3] == ["bw", "create", "item"] for c in FakeTools.calls))
@@ -221,7 +221,7 @@ class UninstallTest(V2):
         self.assertEqual(self.run_cli(["uninstall"]), 0, "\n".join(self.lines))
         self.assertEqual(self.tree(), self.before)
         self.assertEqual(FakeBackend.installed, set())
-        self.assertTrue((self.remote / "testperson" / "id-context.git").is_dir(), "remote repos are never deleted by default")
+        self.assertTrue((self.remote / "testperson" / "id.git").is_dir(), "remote repos are never deleted by default")
         self.assertIn("age-identity", FakeTools.notes, "the vault is never touched")
         self.assertFalse(any(c[:3] == ["gh", "repo", "delete"] for c in FakeTools.calls))
 
@@ -240,9 +240,9 @@ class UninstallTest(V2):
 
     def test_unpushed_work_in_the_own_clone_is_kept(self):
         self.install()
-        (self.home / "Codes" / "id-context" / "draft.md").write_text("only here\n", encoding="utf-8")
+        (self.home / "Codes" / "id" / "draft.md").write_text("only here\n", encoding="utf-8")
         self.assertEqual(self.run_cli(["uninstall"]), 0)
-        self.assertTrue((self.home / "Codes" / "id-context" / "draft.md").is_file())
+        self.assertTrue((self.home / "Codes" / "id" / "draft.md").is_file())
         self.assertTrue(any("kept" in l for l in self.lines), self.lines)
 
     def test_remote_delete_needs_both_confirmations(self):
@@ -255,15 +255,15 @@ class UninstallTest(V2):
         self.assertEqual(self.run_cli(["uninstall", "--delete-remote-repos", "--confirm-remote-delete", "testperson",
                                        "--i-am-sure"]), 0, "\n".join(self.lines))
         deleted = [c[3] for c in FakeTools.calls if c[:3] == ["gh", "repo", "delete"]]
-        self.assertEqual(sorted(deleted), ["testperson/ego-teamx", "testperson/id-context", "testperson/psique"])
+        self.assertEqual(sorted(deleted), ["testperson/ego-teamx", "testperson/id", "testperson/self"])
 
 
 class RestoreTest(V2):
-    """An existing person on a new machine: their psique, layers and vault come back."""
+    """An existing person on a new machine: their self, layers and vault come back."""
 
     def test_restore_brings_the_whole_setup_back(self):
         me = "restorer"
-        idl = make_shared(self.remote, me, "id-context", {
+        idl = make_shared(self.remote, me, "id", {
             "level": "id", "globals": ["me.md"], "rules": [], "dirs": [], "files": []},
             {"global/me.md": "# Me\n\n- my preference\n",
              "tools/unseal.py": "import sys, pathlib\nargs = sys.argv\ninto = pathlib.Path(args[args.index('--into') + 1])\n"
@@ -275,8 +275,8 @@ class RestoreTest(V2):
              "repo": self.coll, "mode": "readonly", "active": True},
             {"level": "ego", "name": "teamx", "company": "teamx", "path": "~/Codes/ego-teamx", "repo": self.ego,
              "active": True},
-            {"level": "id", "path": "~/Codes/id-context", "repo": idl, "active": True}]}
-        make_shared(self.remote, me, "psique", {"level": "x"}, {"manifest.json": json.dumps(manifest)})
+            {"level": "id", "path": "~/Codes/id", "repo": idl, "active": True}]}
+        make_shared(self.remote, me, "self", {"level": "x"}, {"manifest.json": json.dumps(manifest)})
         FakeTools.notes["age-identity"] = f"# public key: {RECIPIENT}\n{SECRET}\n"
         rc = self.run_cli(["restore", "--github", me, "--git-host", f"local:{self.remote}", "--jobs", "apply", "--yes"])
         self.assertEqual(rc, 0, "\n".join(self.lines))

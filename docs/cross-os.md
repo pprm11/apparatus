@@ -25,8 +25,8 @@ what is still pending.
 
 ## Bootstrap
 
-    ./bootstrap.sh --psique OWNER/REPO --dry-run        # macOS, Linux
-    .\bootstrap.ps1 --psique OWNER/REPO --dry-run       # Windows
+    ./bootstrap.sh --self OWNER/REPO --dry-run        # macOS, Linux
+    .\bootstrap.ps1 --self OWNER/REPO --dry-run       # Windows
 
 Stages: packages, vault, auth, repos, restore, jobs (opt-in with `--with-jobs`), doctor. Each stage checks
 before it acts. The vault login is the only prompt on the happy path. Not automatable: the Claude Code and

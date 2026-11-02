@@ -5,7 +5,7 @@
   "files": "Paths relative to the claude home (and to a layer repo): globals, rules and dirs named in layer.json, and @imports in generated files. Every global file name is unique across layers (compose refuses two layers that ship the same name), so each layer prefixes its own.",
   "skills": "Skill folder names. Alias folders keep the old name working for one minor release.",
   "removed_after": "The release that drops the old names (deprecation window, GOVERNANCE.md).",
-  "retired": "Files and folders that left superego. Their content now lives in the layer named on the right; migrate.py removes the old file once that layer is active."
+  "retired": "Files and folders that left superego. Their content now lives in the place named on the right; migrate.py removes the old file only with --prune, and never one that a layer of yours (ego, id, collective) lists in its layer.json, or a skill whose own `level:` is ego, id or collective."
  },
  "repos": {
   "psique": "self",
@@ -27,8 +27,8 @@
  },
  "removed_after": "next major",
  "retired": {
-  "rules/agentes-e-sessoes.md": "persona: practices.md",
-  "rules/uso-de-ia.md": "persona: practices.md",
+  "rules/agentes-e-sessoes.md": "your own layer (no shared layer ships it)",
+  "rules/uso-de-ia.md": "your own layer (no shared layer ships it)",
   "skills/neon": "install the Neon plugin instead",
   "skills/neon-postgres": "install the Neon plugin instead"
  }

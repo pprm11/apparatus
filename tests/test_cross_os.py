@@ -369,7 +369,7 @@ class Bootstrap(unittest.TestCase):
 
     def test_dry_run_runs_nothing_and_lists_manual_steps(self):
         with tempfile.TemporaryDirectory() as d:
-            ctx = self.ctx(d, present=("apt-get",), psique="OWNER/REPO")
+            ctx = self.ctx(d, present=("apt-get",), self_repo="OWNER/REPO")
             res = bootstrap.run_stages(ctx, bootstrap.STAGES)
             self.assertTrue(ctx.runner.dry_run)
             self.assertEqual(res["vault"].status, "todo")

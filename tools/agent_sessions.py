@@ -59,6 +59,8 @@ def claude_sessions(app_dir: str | list[str] | None = None, projects: str = CLAU
                 d = json.load(fh)
         except (OSError, ValueError):
             continue
+        if not isinstance(d, dict):
+            continue
         summary = d.get("postTurnSummary") or {}
         wrap = d.get("turnWrapUp") or {}
         ask = (wrap.get("ask") or "") if isinstance(wrap, dict) else ""
@@ -88,7 +90,8 @@ def _codex_titles(home: str) -> dict[str, str]:
                     d = json.loads(line)
                 except ValueError:
                     continue
-                titles[d.get("id", "")] = d.get("thread_name", "")
+                if isinstance(d, dict):
+                    titles[d.get("id", "")] = d.get("thread_name", "")
     except OSError:
         pass
     return titles
@@ -97,21 +100,33 @@ def _codex_titles(home: str) -> dict[str, str]:
 TAIL_BYTES = 64 * 1024
 
 
-def _assistant_text(d: dict) -> str:
+def _assistant_text(d: object) -> str:
+    if not isinstance(d, dict):  # a line can be valid JSON and still not a record (a number, a list)
+        return ""
     p = d.get("payload")
     if isinstance(p, dict) and p.get("type") == "message" and p.get("role") == "assistant":
         return "\n".join(b.get("text", "") for b in p.get("content") or [] if isinstance(b, dict)).strip()
     return ""
 
 
+def _safe_codex_tail(path: str) -> tuple[str, str, str]:
+    """_codex_tail, but one unreadable or odd rollout never fails the whole harvest."""
+    try:
+        return _codex_tail(path)
+    except (OSError, ValueError, AttributeError, TypeError):
+        return "", "", ""
+
+
 def _codex_tail(path: str) -> tuple[str, str, str]:
     """(session id, cwd, last assistant text) from one rollout file. The session_meta record is the first
     line; the last assistant message is looked for in the final TAIL_BYTES only (rollouts reach hundreds of MB)."""
     sid, cwd, last = "", "", ""
+    if path.endswith(".zst"):  # Codex compresses archived rollouts; stdlib cannot read them, so they carry no tail
+        return sid, cwd, last
     with open(path, "rb") as fh:
         try:
             first = json.loads(fh.readline().decode("utf-8", errors="replace"))
-            if first.get("type") == "session_meta" and isinstance(first.get("payload"), dict):
+            if isinstance(first, dict) and first.get("type") == "session_meta" and isinstance(first.get("payload"), dict):
                 sid, cwd = first["payload"].get("id", ""), first["payload"].get("cwd", "")
         except ValueError:
             pass
@@ -166,7 +181,7 @@ def codex_sessions(home: str = CODEX_HOME) -> Iterator[Session]:
         return
     titles = _codex_titles(home)
     for sid, rollout, cwd, title, archived, updated in rows:
-        last = _codex_tail(rollout)[2] if rollout and os.path.isfile(rollout) else ""
+        last = _safe_codex_tail(rollout)[2] if rollout and os.path.isfile(rollout) else ""
         asks = last.rstrip().endswith("?")
         status = "archived" if archived else ("waiting" if asks else "done" if last else "open")
         when = _epoch(updated) or (os.path.getmtime(rollout) if rollout and os.path.isfile(rollout) else 0)
@@ -183,7 +198,7 @@ def _codex_sessions_from_files(home: str) -> Iterator[Session]:
     newest: dict[str, Session] = {}
     for folder, archived in (("sessions", False), ("archived_sessions", True)):
         for path in glob.glob(os.path.join(home, folder, "**", "*.jsonl"), recursive=True):
-            sid, cwd, last = _codex_tail(path)
+            sid, cwd, last = _safe_codex_tail(path)
             sid = sid or os.path.basename(path)[:-6]
             if not titles.get(sid):
                 continue

@@ -62,6 +62,36 @@ class MigrateTest(unittest.TestCase):
         self.assertFalse((self.home / "rules" / "old-name.md").exists())
         self.assertFalse((self.home / "rules" / "gone.md").exists())
 
+    def test_a_skill_that_belongs_to_the_person_is_left_alone(self) -> None:
+        own = self.home / "skills" / "old-skill"
+        (own / "SKILL.md").write_text("---\nlevel: ego\nname: old-skill\n---\nmine\n", encoding="utf-8")
+        kinds = [c["kind"] for c in migrate.plan(json.loads(self.manifest.read_text()), self.home, MAP)]
+        self.assertNotIn("skill", kinds)
+        self.assertNotIn("stale", kinds)
+        (own / "SKILL.md").write_text("---\nlevel: superego\nname: old-skill\n---\nshared\n", encoding="utf-8")
+        kinds = [c["kind"] for c in migrate.plan(json.loads(self.manifest.read_text()), self.home, MAP)]
+        self.assertIn("skill", kinds)
+
+    def test_a_localized_alias_skill_is_not_stale(self) -> None:
+        (self.home / "skills" / "new-skill").mkdir()
+        (self.home / "skills" / "old-skill" / "SKILL.md").write_text(
+            "---\nname: old-skill\n---\nFollow the canonical skill at [new-skill](../new-skill/SKILL.md).\n", encoding="utf-8")
+        kinds = [c["kind"] for c in migrate.plan(json.loads(self.manifest.read_text()), self.home, MAP)]
+        self.assertNotIn("stale", kinds)
+        self.assertNotIn("skill", kinds)
+
+    def test_a_retired_rule_listed_by_a_layer_of_the_person_is_kept(self) -> None:
+        layer = Path(self.tmp.name) / "idlayer"
+        layer.mkdir()
+        (layer / "layer.json").write_text(json.dumps({"level": "id", "rules": ["gone.md"]}), encoding="utf-8")
+        manifest = json.loads(self.manifest.read_text())
+        manifest["layers"][1]["path"] = str(layer)
+        retired = [c["old"] for c in migrate.plan(manifest, self.home, MAP) if c["kind"] == "retired"]
+        self.assertEqual(retired, [])
+        manifest["layers"][1]["level"] = "superego"  # a shared layer listing it does not count
+        retired = [c["old"] for c in migrate.plan(manifest, self.home, MAP) if c["kind"] == "retired"]
+        self.assertEqual(retired, ["rules/gone.md"])
+
     def test_repos_flag_rewrites_only_matching_urls(self) -> None:
         migrate.apply(self.manifest, self.home, MAP, repos=True)
         repos = [layer["repo"] for layer in json.loads(self.manifest.read_text())["layers"]]

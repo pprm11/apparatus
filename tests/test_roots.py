@@ -14,14 +14,37 @@ import roots  # noqa: E402
 
 
 def make_root(base: Path, rel_paths: bool) -> Path:
-    """<base>/psique/manifest.json + <base>/superego/layer.json, outside any ~/Codes."""
-    (base / "psique").mkdir(parents=True)
+    """<base>/self/manifest.json + <base>/superego/layer.json, outside any ~/Codes."""
+    (base / "self").mkdir(parents=True)
     (base / "superego").mkdir()
     (base / "superego" / "layer.json").write_text(json.dumps({"level": "superego"}), encoding="utf-8")
     path = "superego" if rel_paths else str(base / "superego")
-    (base / "psique" / "manifest.json").write_text(
+    (base / "self" / "manifest.json").write_text(
         json.dumps({"default_level": "id", "layers": [{"level": "superego", "path": path, "repo": "x/y"}]}), encoding="utf-8")
     return base
+
+
+class DefaultManifestTest(unittest.TestCase):
+    def test_prefers_self_when_both_manifests_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            for name in ("self", "psique"):
+                (base / name).mkdir()
+                (base / name / "manifest.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(roots.default_manifest(root=tmp, environ={}), str(base / "self" / "manifest.json"))
+
+    def test_falls_back_to_legacy_psique(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = Path(tmp) / "psique" / "manifest.json"
+            legacy.parent.mkdir()
+            legacy.write_text("{}", encoding="utf-8")
+            self.assertEqual(roots.default_manifest(tmp, {}), str(legacy))
+            self.assertEqual(roots.manifest_path(tmp, {}), str(legacy))
+
+    def test_defaults_to_self_when_neither_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(roots.default_manifest(None, {"PSIQUE_ROOT": tmp}),
+                             str(Path(tmp) / "self" / "manifest.json"))
 
 
 class RootsTest(unittest.TestCase):
@@ -31,7 +54,7 @@ class RootsTest(unittest.TestCase):
         self.assertEqual(roots.layers_root(None, {}), str(ROOT.parent))
 
     def test_default_manifest_hangs_off_the_root(self) -> None:
-        self.assertEqual(roots.default_manifest("/r", {}), os.path.normpath("/r/psique/manifest.json"))
+        self.assertEqual(roots.default_manifest("/r", {}), os.path.normpath("/r/self/manifest.json"))
 
     def test_relative_layer_path_resolves_against_root(self) -> None:
         self.assertEqual(roots.resolve_layer_path("superego", "/r"), os.path.normpath("/r/superego"))
@@ -42,13 +65,13 @@ class RootsTest(unittest.TestCase):
     def test_old_manifest_with_absolute_paths_still_loads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = make_root(Path(tmp) / "any folder" / "work", rel_paths=False)
-            man = layers.load_manifest(str(base / "psique" / "manifest.json"))
+            man = layers.load_manifest(str(base / "self" / "manifest.json"))
             self.assertEqual(man["layers"][0]["path"], os.path.normpath(str(base / "superego")))
 
     def test_relative_manifest_loads_from_a_root_outside_codes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = make_root(Path(tmp) / "elsewhere", rel_paths=True)
-            man = layers.load_manifest(str(base / "psique" / "manifest.json"))
+            man = layers.load_manifest(str(base / "self" / "manifest.json"))
             self.assertEqual(man["layers"][0]["path"], os.path.normpath(str(base / "superego")))
             self.assertEqual(man["layers"][0]["config"], {"level": "superego"})
 
@@ -68,7 +91,7 @@ class RootsTest(unittest.TestCase):
             for res in (by_flag, by_env):
                 self.assertEqual(res.returncode, 0, res.stderr[-400:])
             missing = self._plan("--root", str(Path(tmp) / "empty"), "--claude-home", str(claude))
-            self.assertNotEqual(missing.returncode, 0, "a root without psique/manifest.json must fail")
+            self.assertNotEqual(missing.returncode, 0, "a root without self/manifest.json must fail")
 
     def test_roots_cli_prints_the_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -85,11 +108,11 @@ class NestedLayerTest(unittest.TestCase):
         (app / "superego").mkdir(parents=True)
         (app / ".git").mkdir()
         (app / "superego" / "layer.json").write_text(json.dumps({"level": "superego"}), encoding="utf-8")
-        (base / "psique").mkdir()
+        (base / "self").mkdir()
         return app
 
     def manifest(self, base: Path, path: str) -> str:
-        m = base / "psique" / "manifest.json"
+        m = base / "self" / "manifest.json"
         m.write_text(json.dumps({"layers": [{"level": "superego", "path": path, "repo": "x/y"}]}), encoding="utf-8")
         return str(m)
 

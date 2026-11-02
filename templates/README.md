@@ -2,7 +2,7 @@
 
 Starting points for the other layers. Copy one to a new repo and follow the README inside it.
 
-- `psique/`: the meta repo with `manifest.json` that lists the layers (called `self` after the rename).
+- `self/`: the meta repo with `manifest.json` that lists the layers.
 - `persona/`: opt-in public practices of one person.
 - `collective/`: what a team shares, read-only for its members.
 - `ego/`: one company or project, private to a person.

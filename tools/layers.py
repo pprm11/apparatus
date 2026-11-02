@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Route the agent context in ~/.claude (source of truth) into the layer repos listed by the psique manifest.
+"""Route the agent context in ~/.claude (source of truth) into the layer repos listed by the self manifest.
 
 Levels: superego = general harness, ego = company context, id = personal. Each layer repo
 has a layer.json saying what it owns; memories and skills are routed by the `level:` field of their
 frontmatter (missing field = the manifest's default level, normally the active ego).
 
-  python -I tools/layers.py plan   --manifest <root>/psique/manifest.json [--claude-home ~/.claude]
+  python -I tools/layers.py plan   --manifest <root>/self/manifest.json [--claude-home ~/.claude]
   python -I tools/layers.py export --manifest M --level ego [--dry-run]     # write that layer's repo tree
   python -I tools/layers.py export --manifest M --all                       # every active layer
   python -I tools/layers.py unlabeled --manifest M                          # memories/skills without level:
@@ -43,6 +43,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mirror as mirror_mod  # noqa: E402
+from ospaths import long_path as lp  # noqa: E402
 import roots  # noqa: E402
 
 LEVELS = ("superego", "persona", "collective", "ego", "id")
@@ -71,10 +72,10 @@ def frontmatter_block(path: str) -> str | None:
     """The first YAML block of a markdown file (between the opening and closing `---`), or None when the file
     has none. A UTF-8 BOM, blank lines before the block and CRLF are tolerated; a missing file or a folder is
     "no block"; any other OSError propagates so the caller decides which way to fail."""
-    if os.path.isdir(path):
+    if os.path.isdir(lp(path)):
         return None
     try:
-        with open(path, encoding="utf-8-sig", errors="replace") as fh:
+        with open(lp(path), encoding="utf-8-sig", errors="replace") as fh:
             head = fh.read(FRONT_MAX)
     except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
         return None
@@ -119,7 +120,7 @@ def withheld(rel: str, path: str, sealed: list[str]) -> bool:
     `sealed` in layer.json, or a memory, SKILL.md or markdown file flagged `sealed: true`."""
     if is_sealed(rel, sealed):
         return True
-    target = os.path.join(path, "SKILL.md") if os.path.isdir(path) else path
+    target = os.path.join(path, "SKILL.md") if os.path.isdir(lp(path)) else path
     return target.lower().endswith(".md") and frontmatter_sealed(target)
 
 
@@ -176,6 +177,23 @@ def repo_root(path: str) -> str:
         cur = parent
 
 
+def _git(repo: str, *args: str) -> str:
+    out = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def guard_default_branch(repo: str) -> None:
+    """A readonly layer is fast-forwarded, so it must sit on its default branch. A checkout left on another
+    branch (a task branch, a detached HEAD) would make `pull --ff-only` fail with no hint; abort with the fix.
+    Never switches branches itself."""
+    default = _git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/") or "main"
+    current = _git(repo, "symbolic-ref", "--short", "HEAD")
+    if current != default:
+        raise SystemExit(
+            f"readonly layer {repo} is on {current or 'a detached HEAD'}, not its default branch {default}; "
+            f"fix: git -C {repo} switch {default}")
+
+
 def pull(man: dict, dry: bool = False) -> list[str]:
     """Bring each active readonly layer to its pinned `ref` (tag or SHA), or fast-forward it when no ref is set."""
     log: list[str] = []
@@ -190,6 +208,8 @@ def pull(man: dict, dry: bool = False) -> list[str]:
         if not has_remote:
             log.append(f"[{layer['level']}] no remote, nothing to pull")
             continue
+        if not ref and not dry:
+            guard_default_branch(repo)
         cmds = [["git", "-C", repo, "fetch", "--tags", "--quiet"]]
         cmds.append(["git", "-C", repo, "checkout", "--quiet", ref] if ref else ["git", "-C", repo, "pull", "--ff-only", "--quiet"])
         for cmd in cmds:
@@ -220,26 +240,50 @@ def plan(man: dict, home: str) -> dict[str, list[tuple[str, str]]]:
     default = man["default_level"]
     out: dict[str, list] = {l: [] for l in LEVELS}
     skills = os.path.join(home, "skills")
+    marker = os.path.join(skills, ".company-skills.json")
+    generated = set(read_json(marker).get("skills", [])) if os.path.isfile(marker) else set()
+    for persona_marker in (os.path.join(home, ".persona-skills.json"), os.path.join(skills, ".persona-skills.json")):
+        if os.path.isfile(persona_marker):
+            receipt = read_json(persona_marker)
+            import compose
+            for name in receipt.get("skills", []):
+                if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+                    raise SystemExit("invalid managed skill receipt")
+                folder = os.path.join(skills, name)
+                if os.path.lexists(folder) and (name not in receipt.get("hashes", {}) or compose.tree_hash(folder) != receipt["hashes"][name]):
+                    raise SystemExit(f"managed skill changed or has no receipt: {name}")
+            generated.update(receipt.get("skills", []))
+    readonly_names = set()
+    for layer in active_layers(man):
+        if is_readonly(layer):
+            root = os.path.join(layer["path"], "skills")
+            if os.path.isdir(root):
+                readonly_names.update(name for name in os.listdir(root) if os.path.isfile(os.path.join(root, name, "SKILL.md")))
+        alias_path = layer["config"].get("skill_aliases")
+        if alias_path and layer["level"] == "id":
+            readonly_names.update(read_json(os.path.join(layer["path"], alias_path)).get("aliases", {}))
     if os.path.isdir(skills):
         for name in sorted(os.listdir(skills)):
             d = os.path.join(skills, name)
-            if name == "synced" or not os.path.isfile(os.path.join(d, "SKILL.md")):
+            if name == "synced" or name in generated or not os.path.isfile(os.path.join(d, "SKILL.md")):
                 continue
+            if name in readonly_names and not frontmatter_level(os.path.join(d, "SKILL.md")):
+                raise SystemExit(f"unmanaged readonly skill collision: {name}")
             out[level_of_skill(d, default)].append((f"skills/{name}", f"skills/{name}"))
     projects = os.path.join(home, "projects")
     if os.path.isdir(projects):
         for key in sorted(os.listdir(projects)):
             mem = os.path.join(projects, key, "memory")
-            if not os.path.isdir(mem):
+            if not os.path.isdir(lp(mem)):
                 continue
-            for name in sorted(os.listdir(mem)):
+            for name in sorted(os.listdir(lp(mem))):
                 p = os.path.join(mem, name)
-                if not name.endswith(".md") or not os.path.isfile(p):
+                if not name.endswith(".md") or not os.path.isfile(lp(p)):
                     continue
                 lvl = default if name == "MEMORY.md" else level_of_memory(p, default)
                 folder = short_project_key(key)
                 out[lvl].append((f"projects/{key}/memory/{name}", f"memory/{folder}/{name}"))
-                if name != "MEMORY.md" and lvl != default and os.path.isfile(os.path.join(mem, "MEMORY.md")):
+                if name != "MEMORY.md" and lvl != default and os.path.isfile(lp(os.path.join(mem, "MEMORY.md"))):
                     idx = (f"projects/{key}/memory/MEMORY.md", f"memory/{folder}/MEMORY.md")
                     if idx not in out[lvl]:
                         out[lvl].append(idx)  # a layer that owns memories of this key also gets an index of them
@@ -254,20 +298,20 @@ def unlabeled(home: str) -> list[str]:
             res.append(f"skills/{name}")
     for key in sorted(os.listdir(os.path.join(home, "projects")) if os.path.isdir(os.path.join(home, "projects")) else []):
         mem = os.path.join(home, "projects", key, "memory")
-        if not os.path.isdir(mem):
+        if not os.path.isdir(lp(mem)):
             continue
-        for name in sorted(os.listdir(mem)):
+        for name in sorted(os.listdir(lp(mem))):
             if name.endswith(".md") and name != "MEMORY.md" and frontmatter_level(os.path.join(mem, name)) is None:
                 res.append(f"projects/{key}/memory/{name}")
     return res
 
 
 def copy_file(src: str, dst: str, dry: bool, log: list) -> None:
-    if os.path.isfile(dst) and mirror_mod.same(src, dst):
+    if os.path.isfile(lp(dst)) and mirror_mod.same(src, dst):
         return
     log.append(f"copy {dst}")  # absolute: relpath() raises when cwd sits on another drive
     if not dry:
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        os.makedirs(lp(os.path.dirname(dst)), exist_ok=True)
         mirror_mod.atomic_copy(src, dst)
 
 
@@ -279,13 +323,13 @@ def filter_index(src: str, level: str, default: str, home: str = "", sealed: lis
     """MEMORY.md text with only the entries whose file this level owns (a file that is not there is kept).
     An entry whose file is sealed, by path or by flag, is dropped too: its title and hook are content."""
     mem = os.path.dirname(src)
-    with open(src, encoding="utf-8") as fh:
+    with open(lp(src), encoding="utf-8") as fh:
         lines = fh.read().splitlines(keepends=True)
     keep = []
     for ln in lines:
         m = INDEX_LINK_RE.match(ln)
         target = os.path.join(mem, m.group(1)) if m else ""
-        if m and os.path.isfile(target):
+        if m and os.path.isfile(lp(target)):
             if level_of_memory(target, default) != level:
                 continue
             if withheld(os.path.relpath(target, home) if home else "", target, sealed or []):
@@ -298,7 +342,7 @@ def write_index(src: str, dst: str, level: str, default: str, dry: bool, log: li
                 sealed: list[str] | None = None) -> bool:
     """Write the filtered index; False (and nothing written) when every entry the source listed was dropped."""
     text = filter_index(src, level, default, home, sealed)
-    with open(src, encoding="utf-8") as fh:
+    with open(lp(src), encoding="utf-8") as fh:
         had_entries = INDEX_LINK_ANY.search(fh.read()) is not None
     if had_entries and not INDEX_LINK_ANY.search(text):
         return False
@@ -388,6 +432,7 @@ def export(man: dict, home: str, level: str, dry: bool = False) -> list[str]:
     repo, cfg = layer["path"], layer["config"]
     if not os.path.isdir(repo):
         raise SystemExit(f"layer repo {repo} is missing")
+    routes = plan(man, home)
     log: list[str] = []
     produced: set[str] = set()
     sealed = sealed_paths(cfg)
@@ -403,7 +448,7 @@ def export(man: dict, home: str, level: str, dry: bool = False) -> list[str]:
             d = os.path.join(repo, "rules", f)
             produced.add(os.path.normcase(os.path.relpath(d, repo)))
             copy_file(s, d, dry, log)
-    for rel_src, rel_dst in plan(man, home)[level]:
+    for rel_src, rel_dst in routes[level]:
         s, d = os.path.join(home, rel_src), os.path.join(repo, rel_dst)
         if withheld(rel_src, s, sealed):
             log.append(f"withheld {rel_src} (sealed)")  # only its .age copy may enter the repo (tools/seal.sh)
@@ -440,6 +485,28 @@ def export(man: dict, home: str, level: str, dry: bool = False) -> list[str]:
         d = os.path.join(repo, "decisions", "inbox.json")
         produced.add(os.path.normcase("decisions/inbox.json"))
         copy_file(inbox, d, dry, log)
+    # Generated readonly skills are not exported; preserve any preexisting namesake
+    # rather than pruning data whose ownership cannot be inferred from this home.
+    marker = os.path.join(home, "skills", ".company-skills.json")
+    generated = set(read_json(marker).get("skills", [])) if os.path.isfile(marker) else set()
+    for persona_marker in (os.path.join(home, ".persona-skills.json"), os.path.join(home, "skills", ".persona-skills.json")):
+        if os.path.isfile(persona_marker):
+            generated.update(read_json(persona_marker).get("skills", []))
+    for name in generated:
+        existing = os.path.join(repo, "skills", name)
+        for root, _, files in os.walk(existing):
+            for filename in files:
+                produced.add(os.path.normcase(os.path.relpath(os.path.join(root, filename), repo)))
+    # An incomplete skill folder may contain private reference material. Its
+    # owner is unknown, so export must not prune it.
+    skills_root = os.path.join(repo, "skills")
+    if os.path.isdir(skills_root):
+        for name in os.listdir(skills_root):
+            folder = os.path.join(skills_root, name)
+            if os.path.isdir(folder) and not os.path.isfile(os.path.join(folder, "SKILL.md")):
+                for root, _, files in os.walk(folder):
+                    for filename in files:
+                        produced.add(os.path.normcase(os.path.relpath(os.path.join(root, filename), repo)))
     prune(repo, roots, produced, dry, log)
     return log
 
@@ -448,7 +515,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["plan", "export", "unlabeled", "pull"])
-    ap.add_argument("--manifest", help="default: <root>/psique/manifest.json")
+    ap.add_argument("--manifest", help="default: <root>/self/manifest.json")
     ap.add_argument("--root", help="folder holding the layer repos (default: $PSIQUE_ROOT, else the parent of this checkout)")
     ap.add_argument("--claude-home", default=os.path.expanduser("~/.claude"))
     ap.add_argument("--level", choices=LEVELS)

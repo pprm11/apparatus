@@ -1,24 +1,22 @@
-# Agent context map (where each thing lives)
+# Agent context map
 
-Holds for Claude Code and Codex. The source of truth is the Claude home (`~/.claude`); Codex reads the same
-content from a generated `~/.codex/AGENTS.md` (`render_harness.py`; do not edit the generated file).
+Claude Code and Codex use the private Claude home (`~/.claude`) as the live context. Codex reads a generated
+`~/.codex/AGENTS.md` (`render_harness.py`); do not edit that generated file. The `self` repo composes
+`CLAUDE.md` from the layer repos under the layers root.
 
-Each layer (see the superego glossary) is a repo under the layers root; the `self` repo generates the root
-`CLAUDE.md`. Every memory and every skill carries `level:` in its frontmatter; without it the manifest's default
-level applies. Every layer has a glossary (the `glossary` field of `layer.json`, same format: version,
-collisions, standard terms, how to read requests); sync runs `tools/lint_glossary.py` and stops an undeclared
-collision.
+Private memories and skills use their `level:`; unlabeled entries use the manifest default. Public persona
+skills are authored in English in their own readonly repo: repository ownership identifies their layer, so
+`level:` is not required. Composition adds private Portuguese aliases and local policy without altering
+the source. Every layer declares its glossary in `layer.json`; `tools/lint_glossary.py` blocks undeclared
+collisions.
 
-Always loaded: `~/.claude/CLAUDE.md` (generated: the globals of each layer in order, plus the adapter
-`harness/<harness>.md`) and `~/.claude/rules/*.md`. Change these files only with the user's yes.
+Always loaded: `~/.claude/CLAUDE.md`, its layer globals and `harness/<harness>.md`, and
+`~/.claude/rules/*.md`. Change these files only with the user's yes.
 
-Memory is split by project under `~/.claude/projects/<key>/memory/`, each with a `MEMORY.md` index. Only the
-index of the current project is loaded. When the subject belongs to another project, read that project's
-`MEMORY.md`.
+Project memories live in `~/.claude/projects/<key>/memory/`, each with a `MEMORY.md` index. Only the current
+project index is loaded; read another project's index when its context is needed. Use `context-recall` to
+search beyond the index and `context-ingest` for authorized memory writes and index rebuilds.
 
-To search beyond the current index use `context-recall`; to save a memory and rebuild the index use
-`context-ingest`.
-
-Procedures live in `~/.claude/skills/` (the portable ones also in `~/.codex/skills/`, as links). Scripts live in
-`~/.claude/scripts/`. A personal skill, hook or script stays there and never goes into a branch or PR of a team
-repo: a team repo receives only changes in the scope of its task.
+Composed procedures live in `~/.claude/skills/`; portable skills also link from `~/.codex/skills/`. Scripts
+live in `~/.claude/scripts/`. Personal skills, hooks and scripts stay out of team branches and PRs; a team repo
+receives only its task's scope.

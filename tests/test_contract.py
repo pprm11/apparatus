@@ -1,6 +1,6 @@
 """Contract tests: a breaking change to superego's public contract fails here (GOVERNANCE.md, docs/contract.md).
 
-ci/contract.json is the snapshot of what other layers, the installer and psique rely on. The live tree may
+ci/contract.json is the snapshot of what other layers, the installer and self rely on. The live tree may
 grow beyond it (additive, minor release) but every snapshot entry must still exist. Removing or renaming one
 is a breaking change: it needs a major release, so update the snapshot only together with that release.
 """
@@ -8,6 +8,8 @@ import importlib.util
 import json
 import re
 import subprocess
+import tempfile
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -29,7 +31,7 @@ def missing(section: str) -> list[str]:
 class ContractTest(unittest.TestCase):
     def test_snapshot_has_every_section(self) -> None:
         for key in ("layer_json_keys", "manifest_keys", "manifest_layer_keys", "context_budget_keys", "cli",
-                    "template_files", "read_paths", "rule_ids", "skills"):
+                    "template_files", "read_paths", "rule_ids", "composed_skills"):
             self.assertIn(key, SNAP)
             self.assertTrue(SNAP[key], f"{key} is empty in ci/contract.json")
 
@@ -64,7 +66,34 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(missing("rule_ids"), [], HOW)
 
     def test_skills_kept(self) -> None:
-        self.assertEqual(missing("skills"), [], HOW)
+        """The composed home retains the contracted public skills and old vault invocation."""
+        sys.path.insert(0, str(ROOT / "tools"))
+        import compose
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            persona, identity, superego = (root / n for n in ("persona", "id", "superego"))
+            for canonical in SNAP["composed_skills"].values():
+                path = persona / "skills" / canonical / "SKILL.md"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"---\nname: {canonical}\ndescription: Test.\n---\nbody\n", encoding="utf-8")
+            identity.mkdir()
+            aliases = {old: {"target": canonical, "description": "Local invocation."}
+                       for old, canonical in SNAP["composed_skills"].items()}
+            (identity / "aliases.json").write_text(json.dumps({"aliases": aliases}), encoding="utf-8")
+            selected = [{"level": "superego", "path": str(superego), "active": True, "config": {}},
+                        {"level": "persona", "path": str(persona), "active": True, "config": {}},
+                        {"level": "id", "path": str(identity), "active": True, "config": {"skill_aliases": "aliases.json"}}]
+            man = {"layers": selected, "budgets": {}}
+            companies = {"companies": {"test": {}}}
+            out = root / "out"
+            self.assertEqual(compose.compose_company(man, "test", companies, str(out), note=lambda _: None), 0)
+            for old, canonical in SNAP["composed_skills"].items():
+                self.assertTrue((out / "skills" / canonical / "SKILL.md").is_file())
+                self.assertTrue((out / "skills" / old / "SKILL.md").is_file())
+            missing_skill = next(iter(SNAP["composed_skills"].values()))
+            shutil.rmtree(persona / "skills" / missing_skill)
+            with self.assertRaises(SystemExit):
+                compose.company_plan(man, "test", companies, note=lambda _: None)
 
     def test_removal_is_detected(self) -> None:
         """The detector itself: a snapshot entry the live tree lacks is reported."""
@@ -80,7 +109,7 @@ class GlobalNamesTest(unittest.TestCase):
         seen: dict[str, str] = {}
         for layer_json in [ROOT / "superego" / "layer.json", *sorted((ROOT / "templates").glob("*/layer.json"))]:
             cfg = json.loads(layer_json.read_text(encoding="utf-8"))
-            if cfg.get("level") == "psique":
+            if cfg.get("level") == "self":
                 continue
             for name in cfg.get("globals", []) + cfg.get("rules", []):
                 where = layer_json.parent.name
@@ -117,7 +146,7 @@ class NoIdentifiersTest(unittest.TestCase):
     # must be genericised before superego opens. Ratchet: this set only shrinks; a new file fails the test.
     DEBT: dict[str, set[str]] = {}
     # The only handle that may appear: the repository owner's, inside a GitHub URL (install and clone commands).
-    OWNER_URL = re.compile(r"github\.com[/:](?:" + next(p["regex"] for p in PATTERNS if p["name"].startswith("account-")) + r")/(superego|psique|id-context)\b")
+    OWNER_URL = re.compile(r"github\.com[/:](?:" + next(p["regex"] for p in PATTERNS if p["name"].startswith("account-")) + r")/(apparatus|superego|self|id)\b")
 
     def tracked(self) -> list[str]:
         out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, encoding="utf-8")

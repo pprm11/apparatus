@@ -111,7 +111,7 @@ class Vault:
 
 
 def save_recipient(home: Path, recipient: str) -> Path:
-    p = home / ".config" / "id-context" / "recipient"
+    p = home / ".config" / "id-context" / "recipient"  # legacy folder name, kept so existing recipients keep working
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(recipient + "\n", encoding="utf-8", newline="\n")
     return p

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Route the agent context in ~/.claude (source of truth) into the layer repos of the psique manifest
+# Route the agent context in ~/.claude (source of truth) into the layer repos of the self manifest
 # (superego, ego-<company>, id; tools/layers.py), then render it for Codex (tools/render_harness.py).
-# Usage: ./sync.sh [--manifest <root>/psique/manifest.json]            -> copy only
+# Usage: ./sync.sh [--manifest <root>/self/manifest.json]            -> copy only
 #        ./sync.sh --push [--manifest M]  -> copy, commit (up to 3 Conventional Commits) and push each layer
 # Env: PUBLIC_MIRROR=1 also builds (and with PUBLIC_MIRROR_REMOTE publishes) the public mirror, docs/public-mirror.md.
 # Exit codes: 0 ok or skipped (lock held, weekly running), 1 aborted by a safety check or failed, 75 skipped
@@ -15,7 +15,7 @@ SRC="${CLAUDE_HOME:-$HOME/.claude}"
 DST="$(cd "$(dirname "$0")" && pwd)"
 . "$DST/lib.sh"
 PUSH=0
-MANIFEST="${SYNC_MANIFEST:-${PSIQUE_ROOT:-$(dirname "$DST")}/psique/manifest.json}"
+MANIFEST="${SYNC_MANIFEST:-$(default_manifest "${PSIQUE_ROOT:-$(dirname "$DST")}")}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --push) PUSH=1 ;;
@@ -76,8 +76,37 @@ for l in "${LAYERS[@]}"; do
   done
 done
 
+# The checkout this script runs from is the live one: lock it to its default branch (see tools/branch_lock.py).
+python -I "$DST/tools/branch_lock.py" install "$DST" || echo "branch lock not installed for $DST (see message above)"
+
 # Pull the readonly layers (pinned `ref`, or fast-forward) before routing; a failed pull aborts the sync.
 python -I "$DST/tools/layers.py" pull --manifest "$MANIFEST" || abort "pull of a readonly layer failed"
+# Refresh only generated skills after pull; do not regenerate the active rule imports.
+if python -I - "$MANIFEST" <<'PY2'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    layers = json.load(fh).get("layers", [])
+sys.exit(0 if any(l.get("level") == "persona" and l.get("active", True) for l in layers) else 1)
+PY2
+then
+  if ! python -I "$DST/tools/compose.py" --manifest "$MANIFEST" --claude-home "$SRC" --skills-only; then
+    # The failure blocks export. Record one generic item without copying skill contents into the inbox.
+    python -I - "$DST/tools" "$SRC" <<'PY2' || echo "could not record persona refresh decision" >&2
+import sys
+sys.path.insert(0, sys.argv[1])
+import decisions
+home = sys.argv[2]
+title = "Persona skill refresh blocked"
+with decisions.locked(home):
+    data = decisions.load(home)
+    if not any(item.get("title") == title and item.get("status") == "open" for item in data["items"]):
+        decisions.new_item(data, "manual", title, level="superego", source="sync",
+                           detail="Skill refresh stopped the sync. Inspect the local sync log and resolve the ownership conflict before retrying.")
+        decisions.save(data, home)
+PY2
+    abort "persona skills refresh failed"
+  fi
+fi
 
 # Machine guard (Windows only): kills search processes orphaned by a Bash timeout (find/grep/rg, parent dead,
 # over 30 min), raises an inbox item on a handle or kernel-pool blow-up, and records vmmemWSL for the weekly
@@ -219,7 +248,7 @@ sync_repo() { # path, level: stage, guard, commit groups, push
     local msg="$1"; shift
     [ "$#" -gt 0 ] || return 0
     printf '%s\0' "$@" | git -c core.safecrlf=false add -A --pathspec-from-file=- --pathspec-file-nul
-    git commit -q -m "$msg"
+    SYNC_COMMIT=1 git commit -q -m "$msg"
     COMMITTED=1
     echo "committed: $msg"
   }

@@ -43,6 +43,8 @@ def iter_file(path: str) -> Iterator[dict]:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(entry, dict):
+            continue
         payload = entry.get("payload")
         if not isinstance(payload, dict):
             continue

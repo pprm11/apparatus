@@ -3,7 +3,7 @@
 manifest order: superego, ego, id, then the harness adapter), the MEMORY.md index lines that a layered
 restore may have left out, and the Codex render (tools/render_harness.py).
 
-  python -I tools/compose.py [--manifest <root>/psique/manifest.json] [--claude-home ~/.claude] [--dry-run]
+  python -I tools/compose.py [--manifest <root>/self/manifest.json] [--claude-home ~/.claude] [--dry-run]
   python -I tools/compose.py --company NAME --out DIR [--manifest M] [--companies companies.json] [--codes DIR]
 
 With --company the home for one company is composed into DIR (CLAUDE.md, AGENTS.md, global/, rules/, harness/),
@@ -13,6 +13,8 @@ is used even when its manifest entry is inactive; `active` only drives the defau
 Without --company nothing else in this file changes.
 """
 import argparse
+import contextlib
+import hashlib
 import json
 import os
 import re
@@ -105,7 +107,7 @@ def layer_files(layer: dict) -> tuple[list[str], list[str]]:
 
 def layer_skills(layer: dict) -> list[str]:
     """Skill folders (with a SKILL.md) of a company layer; superego and id skills are not company-scoped."""
-    if layer["level"] not in ("ego", "collective"):
+    if layer["level"] not in ("persona", "ego", "collective", "id"):
         return []
     root = os.path.join(layer["path"], "skills")
     if not os.path.isdir(root):
@@ -149,39 +151,434 @@ def claude_only_skills(superego: dict | None) -> set[str]:
     return set(layers.read_json(path).get("claude_only", []))
 
 
-def sync_company_skills(skills: dict[str, str], dst_root: str, own_all: bool, dry_run: bool = False, note=print) -> list[str]:
-    """Copy skill folders into dst_root. Copied, not linked: no link can later point into another company.
+def tree_hash(path: str) -> str:
+    digest = hashlib.sha256()
+    if os.path.islink(path) or getattr(os.path, "isjunction", lambda _: False)(path):
+        raise SystemExit(f"symlink in managed skill: {path}")
+    for root, dirs, files in os.walk(path):
+        dirs.sort()
+        if any(os.path.islink(os.path.join(root, name)) or getattr(os.path, "isjunction", lambda _: False)(os.path.join(root, name)) for name in dirs):
+            raise SystemExit(f"symlink in managed skill: {root}")
+        for name in dirs:
+            if name == "__pycache__":
+                continue
+            rel = os.path.relpath(os.path.join(root, name), path).replace(os.sep, "/")
+            digest.update(b"D" + rel.encode("utf-8") + b"\0")
+        for name in sorted(files):
+            full = os.path.join(root, name)
+            if os.path.islink(full):
+                raise SystemExit(f"symlink in managed skill: {full}")
+            if os.path.basename(root) == "__pycache__" and name.endswith((".pyc", ".pyo")):
+                continue
+            rel = os.path.relpath(full, path).replace(os.sep, "/")
+            digest.update(b"F" + rel.encode("utf-8") + b"\0")
+            with open(full, "rb") as fh:
+                digest.update(hashlib.sha256(fh.read()).digest())
+    return digest.hexdigest()
 
-    own_all: dst_root belongs to the composed home, so a skill that left the layers is removed.
-    Otherwise (a Codex home that has skills of its own) only folders recorded in SKILL_MARKER are ever replaced or
-    removed; a folder with the same name that is not recorded is left alone with a message.
-    Returns the names written.
+
+def ignore_skill_cache(folder: str, names: list[str]) -> set[str]:
+    ignored = {name for name in names if name == ".git"}
+    if os.path.basename(folder) == "__pycache__":
+        ignored.update(name for name in names if name.endswith((".pyc", ".pyo"))
+                       and os.path.isfile(os.path.join(folder, name)))
+    return ignored
+
+
+def _skill_path_digest(path: str) -> str | None:
+    if not os.path.lexists(path):
+        return None
+    if os.path.islink(path) or getattr(os.path, "isjunction", lambda _: False)(path):
+        raise SystemExit(f"symlink in managed skill transaction: {path}")
+    if os.path.isdir(path):
+        return "dir:" + tree_hash(path)
+    with open(path, "rb") as fh:
+        return "file:" + hashlib.sha256(fh.read()).hexdigest()
+
+
+def _skill_lock_path(dst_root: str, marker_name: str) -> str:
+    name = ".skill-lock-" + hashlib.sha256(marker_name.encode()).hexdigest()[:12]
+    return os.path.join(os.path.dirname(os.path.abspath(dst_root)), name)
+
+
+@contextlib.contextmanager
+def _skill_lock(dst_root: str, marker_name: str, dry_run: bool):
+    """Nonblocking OS lock; the kernel releases it when a writer exits or crashes."""
+    lock_path = _skill_lock_path(dst_root, marker_name)
+    if dry_run and not os.path.exists(lock_path):
+        yield
+        return
+    if not dry_run:
+        os.makedirs(dst_root, exist_ok=True)
+    if os.path.islink(lock_path):
+        raise SystemExit("skill lock is a symlink")
+    fd = os.open(lock_path, os.O_RDWR | (0 if dry_run else os.O_CREAT), 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            if not dry_run and os.fstat(fd).st_size == 0:
+                os.write(fd, b"0")
+            os.lseek(fd, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise SystemExit("skill transaction is locked by another process") from exc
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise SystemExit("skill transaction is locked by another process") from exc
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _skill_transaction_path(dst_root: str, marker_name: str) -> str:
+    return os.path.join(dst_root, ".skill-transaction-" + hashlib.sha256(marker_name.encode()).hexdigest()[:12])
+
+
+def _prepare_skill_transaction(dst_root: str, marker_name: str, dry_run: bool, locked: bool = False) -> None:
+    transaction = _skill_transaction_path(dst_root, marker_name)
+    if not os.path.exists(transaction) and not os.path.exists(_skill_lock_path(dst_root, marker_name)):
+        return
+    if dry_run and os.path.exists(transaction):
+        raise SystemExit(f"pending skill transaction needs recovery: {transaction}")
+    if locked:
+        _recover_skill_transaction(transaction)
+    else:
+        with _skill_lock(dst_root, marker_name, dry_run):
+            _recover_skill_transaction(transaction)
+
+
+def _skill_transaction_target(root: str, name: str) -> str:
+    if name == "@company-receipt":
+        return os.path.join(os.path.dirname(root), ".persona-skills.json")
+    return os.path.join(root, name)
+
+
+def _recover_skill_transaction(transaction: str) -> None:
+    """Roll back a prepared transaction, or finish cleanup after a committed one.
+
+    Refuse recovery if a destination was edited after interruption. Backups are
+    moved only after the destination has been checked, so a retry can resume.
     """
-    marker = os.path.join(dst_root, SKILL_MARKER)
-    owned = set(layers.read_json(marker).get("skills", [])) if os.path.isfile(marker) else set()
-    written = []
-    for name in sorted(owned - set(skills)):
-        note(f"{'would remove' if dry_run else 'remove'} skill {name}")
-        if not dry_run:
-            shutil.rmtree(os.path.join(dst_root, name), ignore_errors=True)
-    if own_all and os.path.isdir(dst_root) and not dry_run:
-        for name in os.listdir(dst_root):
-            if name not in skills and os.path.isdir(os.path.join(dst_root, name)):
-                shutil.rmtree(os.path.join(dst_root, name), ignore_errors=True)
+    if not os.path.exists(transaction):
+        return
+    journal = os.path.join(transaction, "journal.json")
+    if not os.path.isfile(journal):
+        owner = os.path.join(transaction, "owner.json")
+        backup = os.path.join(transaction, "backup")
+        if (os.path.isfile(owner) and layers.read_json(owner) == {"format": 1, "phase": "staging"}
+                and (not os.path.isdir(backup) or not os.listdir(backup))):
+            shutil.rmtree(transaction)
+            return
+        raise SystemExit(f"incomplete skill transaction needs manual review: {transaction}")
+    data = layers.read_json(journal)
+    root = os.path.dirname(transaction)
+    backup_root = os.path.join(transaction, "backup")
+    for item in data["items"]:
+        name = item["name"]
+        if not (re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or name in (SKILL_MARKER, ".persona-skills.json", "@company-receipt")):
+            raise SystemExit("invalid skill transaction entry")
+        current = _skill_transaction_target(root, name)
+        backup = os.path.join(backup_root, name)
+        actual = _skill_path_digest(current)
+        if data.get("committed"):
+            if actual != item["new"]:
+                raise SystemExit(f"committed skill changed before cleanup: {name}")
+            continue
+        if os.path.lexists(backup):
+            if _skill_path_digest(backup) != item["old"] or actual not in (None, item["new"], item["old"]):
+                raise SystemExit(f"skill changed during transaction recovery: {name}")
+        elif item["old"] is None:
+            if actual not in (None, item["new"]):
+                raise SystemExit(f"skill changed during transaction recovery: {name}")
+        elif actual != item["old"]:
+            raise SystemExit(f"skill changed during transaction recovery: {name}")
+    if not data.get("committed"):
+        for item in data["items"]:
+            name = item["name"]
+            current = _skill_transaction_target(root, name)
+            backup = os.path.join(backup_root, name)
+            if os.path.lexists(backup):
+                if os.path.isdir(current):
+                    shutil.rmtree(current)
+                elif os.path.lexists(current):
+                    os.unlink(current)
+                os.replace(backup, current)
+            elif item["old"] is None and os.path.lexists(current):
+                if os.path.isdir(current):
+                    shutil.rmtree(current)
+                else:
+                    os.unlink(current)
+    shutil.rmtree(transaction)
+
+
+def _company_receipt_guard(dst_root: str, skills: dict[str, str], persona: set[str]) -> tuple[str | None, dict[str, str]]:
+    """Check the company-owned skill trees against their authoritative receipt."""
+    marker = os.path.join(os.path.dirname(dst_root), ".persona-skills.json")
+    before = _skill_path_digest(marker)
+    if before is None:
+        return None, {}
+    receipt = layers.read_json(marker)
+    owned = set(receipt.get("skills", []))
+    hashes = receipt.get("hashes", {})
+    for name in owned:
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+            raise SystemExit("invalid managed skill receipt")
+        folder = os.path.join(dst_root, name)
+        if os.path.lexists(folder) and (name not in hashes or tree_hash(folder) != hashes[name]):
+            raise SystemExit(f"managed skill changed or has no receipt: {name}")
+    transitions = owned & (set(skills) - persona)
+    if transitions:
+        raise SystemExit("managed alias now has a private wrapper; migrate explicitly: " + ", ".join(sorted(transitions)))
+    if _skill_path_digest(marker) != before:
+        raise SystemExit("company skill receipt changed while reading")
+    return before, {name: "dir:" + hashes[name] for name in owned if name in hashes}
+
+
+def sync_company_skills(skills: dict[str, str], dst_root: str, own_all: bool, dry_run: bool = False, note=print, aliases: dict | None = None, marker_name: str = SKILL_MARKER, adopt: set[str] | None = None, company_persona: set[str] | None = None) -> list[str]:
+    """Stage all skill copies and the ownership receipt under an OS lock."""
+    # A truly empty shared home has nothing to swap or recover; creating a lock
+    # here would leave installer state behind even though no skill was managed.
+    if (not own_all and not skills and not aliases and not adopt and company_persona is None
+            and not os.path.lexists(os.path.join(dst_root, marker_name))
+            and not os.path.lexists(_skill_transaction_path(dst_root, marker_name))):
+        return []
+    with _skill_lock(dst_root, marker_name, dry_run):
+        return _sync_company_skills_locked(skills, dst_root, own_all, dry_run, note, aliases, marker_name, adopt, company_persona)
+
+
+def _sync_company_skills_locked(skills: dict[str, str], dst_root: str, own_all: bool, dry_run: bool, note, aliases: dict | None, marker_name: str, adopt: set[str] | None, company_persona: set[str] | None) -> list[str]:
+    transaction = _skill_transaction_path(dst_root, marker_name)
+    _prepare_skill_transaction(dst_root, marker_name, dry_run, locked=True)
+    company_marker_before, company_hashes = (None, {})
+    if company_persona is not None:
+        company_marker_before, company_hashes = _company_receipt_guard(dst_root, skills, company_persona)
+    marker = os.path.join(dst_root, marker_name)
+    marker_before = _skill_path_digest(marker)
+    previous = layers.read_json(marker) if os.path.isfile(marker) else {}
+    if _skill_path_digest(marker) != marker_before:
+        raise SystemExit("skill receipt changed while reading")
+    owned = set(previous.get("skills", []))
+    if any(not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) for name in owned):
+        raise SystemExit("invalid managed skill receipt")
+    hashes = previous.get("hashes", {})
+    if not own_all:
+        for name in owned:
+            path = os.path.join(dst_root, name)
+            if os.path.lexists(path) and (name not in hashes or tree_hash(path) != hashes[name]):
+                raise SystemExit(f"managed skill changed or has no receipt: {name}; preserve and migrate explicitly")
+    owned |= adopt or set()
+    aliases = aliases or {}
+    desired = set(skills) | set(aliases)
+    copies = {}
     for name, src in sorted(skills.items()):
         dst = os.path.join(dst_root, name)
         if os.path.lexists(dst) and name not in owned and not own_all:
             note(f"skip skill {name}: a folder that is not ours already exists in {dst_root}")
             continue
-        written.append(name)
-        if dry_run:
+        copies[name] = src
+    written = list(copies)
+    allowed = {}
+    for name, spec in aliases.items():
+        if spec["target"] not in written:
             continue
-        shutil.rmtree(dst, ignore_errors=True)
-        shutil.copytree(src, dst, ignore=shutil.ignore_patterns(".git"))
-    if not own_all and not dry_run and (written or owned):
-        write_text(marker, json.dumps({"skills": written}, indent=1) + chr(10))
+        if name == spec["target"]:
+            allowed[name] = spec
+        elif own_all or not os.path.lexists(os.path.join(dst_root, name)) or name in owned:
+            allowed[name] = spec
+            written.append(name)
+        else:
+            note(f"skip alias {name}: destination is unmanaged or target unavailable")
+    removals = owned - desired
+    if own_all and os.path.isdir(dst_root):
+        removals |= {name for name in os.listdir(dst_root) if name not in desired
+                     and os.path.isdir(os.path.join(dst_root, name))}
+    for name in sorted(removals):
+        note(f"{'would remove' if dry_run else 'remove'} skill {name}")
+    receipt_needed = not own_all and (written or owned)
+    names = sorted(set(written) | removals)
+    if receipt_needed:
+        names.append(marker_name)
+    if company_persona is not None:
+        names.append("@company-receipt")
+    original = {name: _skill_path_digest(_skill_transaction_target(dst_root, name)) for name in names}
+    if marker_name in original and original[marker_name] != marker_before:
+        raise SystemExit("skill receipt changed while planning")
+    if company_persona is not None:
+        if original["@company-receipt"] != company_marker_before:
+            raise SystemExit("company skill receipt changed while planning")
+        for name, expected in company_hashes.items():
+            if name in original and original[name] is not None and original[name] != expected:
+                raise SystemExit(f"managed skill changed while planning: {name}")
+    if not own_all:
+        for name in owned - (adopt or set()):
+            if name in original and original[name] is not None and original[name] != "dir:" + hashes[name]:
+                raise SystemExit(f"managed skill changed while planning: {name}")
+        for name in adopt or set():
+            if name in original and original[name] != "dir:" + tree_hash(skills[name]):
+                raise SystemExit(f"adopted skill changed while planning: {name}")
+    if dry_run:
+        return written
+
+    os.makedirs(dst_root, exist_ok=True)
+    os.mkdir(transaction)
+    stage = os.path.join(transaction, "stage")
+    backup = os.path.join(transaction, "backup")
+    journal = os.path.join(transaction, "journal.json")
+    prepared = False
+    try:
+        write_text(os.path.join(transaction, "owner.json"), json.dumps({"format": 1, "phase": "staging"}))
+        os.mkdir(stage)
+        os.mkdir(backup)
+        for name, src in copies.items():
+            tree_hash(src)
+            shutil.copytree(src, os.path.join(stage, name), ignore=ignore_skill_cache)
+        materialize_aliases(stage, allowed, written)
+        if receipt_needed:
+            receipt = {"skills": written, "hashes": {n: tree_hash(os.path.join(stage, n)) for n in written},
+                       "aliases": {n: a["target"] for n, a in aliases.items() if n in written}}
+            write_text(os.path.join(stage, marker_name), json.dumps(receipt, indent=1) + chr(10))
+        if company_persona is not None:
+            generated = {name for name in written if name in company_persona or name in aliases}
+            receipt = {"skills": sorted(generated), "hashes": {name: tree_hash(os.path.join(stage, name)) for name in sorted(generated)}}
+            write_text(os.path.join(stage, "@company-receipt"), json.dumps(receipt) + chr(10))
+        items = [{"name": name, "old": original[name],
+                  "new": _skill_path_digest(os.path.join(stage, name))} for name in names]
+        # No destination has been touched yet; abort cleanly if staging raced a user edit.
+        for item in items:
+            if _skill_path_digest(_skill_transaction_target(dst_root, item["name"])) != item["old"]:
+                raise SystemExit(f"skill changed while preparing transaction: {item['name']}")
+        data = {"committed": False, "items": items}
+        write_text(journal, json.dumps(data))
+        prepared = True
+        for item in items:
+            name = item["name"]
+            dst = _skill_transaction_target(dst_root, name)
+            if _skill_path_digest(dst) != item["old"]:
+                raise SystemExit(f"skill changed during transaction: {name}")
+            if item["old"] is not None:
+                os.replace(dst, os.path.join(backup, name))
+            if item["new"] is not None:
+                os.replace(os.path.join(stage, name), dst)
+        data["committed"] = True
+        next_journal = os.path.join(transaction, "journal.next")
+        write_text(next_journal, json.dumps(data))
+        os.replace(next_journal, journal)
+    except BaseException:
+        if prepared:
+            _recover_skill_transaction(transaction)
+        else:
+            shutil.rmtree(transaction)
+        raise
+    _recover_skill_transaction(transaction)
     return written
 
+
+def skill_aliases(selected: list[dict], skills: dict[str, str]) -> dict[str, dict]:
+    """Validate private routing configuration before touching the destination."""
+    aliases = {}
+    for layer in selected:
+        path = layer["config"].get("skill_aliases")
+        if not path:
+            continue
+        if layer["level"] != "id" or os.path.isabs(path) or ".." in path.replace("\\", "/").split("/"):
+            raise SystemExit("skill_aliases must be a relative path in the id layer")
+        data = layers.read_json(os.path.join(layer["path"], path))
+        entries = data.get("aliases")
+        if not isinstance(entries, dict):
+            raise SystemExit("invalid skill aliases")
+        for name, entry in entries.items():
+            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or not isinstance(entry, dict):
+                raise SystemExit(f"invalid skill alias {name!r}")
+            target, description = entry.get("target"), entry.get("description")
+            if not isinstance(target, str) or target not in skills or not isinstance(description, str) or not description.strip() or "\n" in description:
+                raise SystemExit(f"invalid or unknown target for skill alias {name}")
+            if name in aliases:
+                raise SystemExit(f"duplicate skill alias {name}")
+            if name in skills and name != target:
+                # Private company wrappers take precedence over generated aliases.
+                if any(layer_skills(l) and name in layer_skills(l) and l["level"] in ("ego", "collective", "id") for l in selected):
+                    continue
+                raise SystemExit(f"skill alias {name} collides with a canonical skill")
+            aliases[name] = {"target": target, "description": description}
+    return aliases
+
+
+def add_policy_routes(selected: list[dict], skills: dict[str, str], aliases: dict[str, dict]) -> None:
+    """Merge explicit private policy bindings with wrappers selected by local aliases."""
+    persona = {name for layer in selected if layer["level"] == "persona" for name in layer_skills(layer)}
+    bindings: dict[str, list[str]] = {}
+    for layer in selected:
+        policies = layer["config"].get("skill_policies", {})
+        if not isinstance(policies, dict) or (policies and layer["level"] not in ("id", "ego", "collective")):
+            raise SystemExit("skill_policies must be a mapping on a private layer")
+        local = set(layer_skills(layer))
+        for target, wrappers in policies.items():
+            if target not in persona or not isinstance(wrappers, list) or not wrappers:
+                raise SystemExit(f"invalid policy target: {target}")
+            for wrapper in wrappers:
+                if not isinstance(wrapper, str) or wrapper not in local or wrapper == target:
+                    raise SystemExit(f"invalid local policy wrapper: {wrapper}")
+                bindings.setdefault(target, []).append(wrapper)
+        if layer["level"] != "id" or not layer["config"].get("skill_aliases"):
+            continue
+        configured = layers.read_json(os.path.join(layer["path"], layer["config"]["skill_aliases"])).get("aliases", {})
+        for name, entry in configured.items():
+            if name in skills and name != entry["target"] and entry["target"] in persona:
+                bindings.setdefault(entry["target"], []).append(name)
+    for target, wrappers in bindings.items():
+        aliases.setdefault(target, {"target": target, "description": ""})["policies"] = list(dict.fromkeys(wrappers))
+
+
+def description_text(content: str, name: str) -> tuple[re.Match, str]:
+    match = re.search(r"(?m)^description:([^\n]*)(?:\n[ \t]+[^\n]*)*", content)
+    if not match:
+        raise SystemExit(f"missing description in {name}")
+    old = match.group(0).split(":", 1)[1].strip()
+    if old in ("|", ">", "|-", ">-"):
+        old = " ".join(line.strip() for line in match.group(0).splitlines()[1:])
+    elif old.startswith('"'):
+        try:
+            old = json.loads(old)
+        except json.JSONDecodeError:
+            old = old.strip('"')
+    return match, old
+
+
+def materialize_aliases(root: str, aliases: dict[str, dict], written: list[str]) -> None:
+    # Same-name overlays first so generated aliases inherit the final description.
+    for name, spec in sorted(aliases.items(), key=lambda item: item[0] != item[1]["target"]):
+        target = spec["target"]
+        if target not in written:
+            continue
+        target_path = os.path.join(root, target, "SKILL.md")
+        with open(target_path, encoding="utf-8") as fh:
+            content = fh.read()
+        match, old = description_text(content, target)
+        if name == target:
+            description = (old + " " + spec["description"]).strip()
+            content = content[:match.start()] + "description: " + json.dumps(description, ensure_ascii=False) + content[match.end():]
+            policies = spec.get("policies", [])
+            if policies:
+                links = ", ".join("[" + wrapper + "](../" + wrapper + "/SKILL.md)" for wrapper in policies)
+                content += ("\n\n## Local policy\nRead " + links + " and apply all local policies and references. "
+                            "The canonical procedure is already active; do not invoke it again.\n")
+            write_text(target_path, content)
+        else:
+            description = (old + " " + spec["description"]).strip()
+            write_text(os.path.join(root, name, "SKILL.md"),
+                       "---\nname: " + name + "\ndescription: " + json.dumps(description, ensure_ascii=False)
+                       + "\n---\n\nFollow the canonical skill at [" + target + "](../" + target + "/SKILL.md).\n")
 
 def layer_sizes(selected: list[dict]) -> dict[str, int]:
     """Bytes of the always-loaded .md files of each layer (globals + rules), by level."""
@@ -224,12 +621,14 @@ def company_plan(man: dict, company: str, data: dict, codes: str = "", note=prin
             if name in skills:
                 raise SystemExit(f"skill {name} exists in two layers ({skills[name]} and {layer['path']}); rename one")
             skills[name] = os.path.join(layer["path"], "skills", name)
+    aliases = skill_aliases(selected, skills)
+    add_policy_routes(selected, skills, aliases)
     for harness in ("claude", "codex"):
         src = os.path.join(superego["path"], "harness", f"{harness}.md") if superego else ""
         if os.path.isfile(src):
             files[f"harness/{harness}.md"] = src
     return {"selected": selected, "superego": superego, "files": files, "skills": skills,
-            "sizes": composition_sizes(man, selected), "root_text": company_claude_md(selected)}
+            "aliases": aliases, "persona_skills": {n for l in selected if l["level"] == "persona" for n in layer_skills(l)}, "sizes": composition_sizes(man, selected), "root_text": company_claude_md(selected)}
 
 
 def compose_company(man: dict, company: str, data: dict, out: str, codes: str = "", dry_run: bool = False,
@@ -237,6 +636,8 @@ def compose_company(man: dict, company: str, data: dict, out: str, codes: str = 
     """Write the home of one company into `out` (see the module docstring). Returns a process exit code."""
     plan = company_plan(man, company, data, codes, note)
     selected, files, skills = plan["selected"], plan["files"], plan["skills"]
+    _prepare_skill_transaction(os.path.join(out, "skills"), SKILL_MARKER, dry_run)
+    _company_receipt_guard(os.path.join(out, "skills"), skills, plan["persona_skills"])
     problems = budget_problems(man, plan["sizes"])
     if problems:
         for p in problems:
@@ -252,7 +653,8 @@ def compose_company(man: dict, company: str, data: dict, out: str, codes: str = 
     for rel, src in files.items():
         with open(src, encoding="utf-8") as fh:
             write_text(os.path.join(out, *rel.split("/")), fh.read())
-    sync_company_skills(skills, os.path.join(out, "skills"), own_all=True, note=note)
+    sync_company_skills(skills, os.path.join(out, "skills"), own_all=True, note=note, aliases=plan["aliases"],
+                        company_persona=plan["persona_skills"])
     write_text(os.path.join(out, "CLAUDE.md"), plan["root_text"])
     agents = render_harness.render_agents_md(out)
     write_text(os.path.join(out, "AGENTS.md"), agents)
@@ -291,11 +693,12 @@ def missing_index_lines(home: str) -> dict[str, list[str]]:
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--manifest", help="default: <root>/psique/manifest.json")
+    ap.add_argument("--manifest", help="default: <root>/self/manifest.json")
     ap.add_argument("--root", help="folder holding the layer repos (default: $PSIQUE_ROOT, else the parent of this checkout)")
     ap.add_argument("--claude-home", default=os.path.expanduser("~/.claude"))
     ap.add_argument("--codex-home", default=os.path.expanduser("~/.codex"))
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--skills-only", action="store_true", help="sync persona skills without regenerating context files")
     ap.add_argument("--company", help="compose the home of one company (needs --out); see the module docstring")
     ap.add_argument("--out", help="with --company: folder to write the composed home into")
     ap.add_argument("--companies", help="with --company: companies.json (default ~/.claude/companies.json)")
@@ -303,6 +706,8 @@ def main() -> int:
     args = ap.parse_args()
     manifest = layers.expand(args.manifest or roots.default_manifest(args.root))
     if args.company:
+        if args.skills_only:
+            ap.error("--skills-only is available only for the default home")
         if not args.out:
             ap.error("--company needs --out")
         man = layers.load_manifest(manifest)
@@ -312,6 +717,53 @@ def main() -> int:
     home = layers.expand(args.claude_home)
     man = layers.load_manifest(manifest)
 
+    selected = default_layers(man)
+    persona_skills = {}
+    for layer in selected:
+        if layer["level"] == "persona":
+            for name in layer_skills(layer):
+                if name in persona_skills:
+                    raise SystemExit(f"duplicate persona skill {name}")
+                persona_skills[name] = os.path.join(layer["path"], "skills", name)
+    # Include private wrappers for alias validation and collision precedence.
+    available = dict(persona_skills)
+    for layer in selected:
+        if layer["level"] in ("ego", "collective", "id"):
+            for name in layer_skills(layer):
+                if name in available:
+                    raise SystemExit(f"skill {name} exists in two layers")
+                available[name] = os.path.join(layer["path"], "skills", name)
+    aliases = skill_aliases(selected, available)
+    add_policy_routes(selected, available, aliases)
+    aliases = {name: spec for name, spec in aliases.items() if spec["target"] in persona_skills}
+    missing_policies = [name for spec in aliases.values() for name in spec.get("policies", [])
+                        if not os.path.isfile(os.path.join(home, "skills", name, "SKILL.md"))]
+    if missing_policies:
+        raise SystemExit("local policy wrapper missing: " + ", ".join(sorted(missing_policies)))
+    _prepare_skill_transaction(os.path.join(home, "skills"), ".persona-skills.json", args.dry_run)
+    marker = os.path.join(home, "skills", ".persona-skills.json")
+    owned = set(layers.read_json(marker).get("skills", [])) if os.path.isfile(marker) else set()
+    private_names = set(available) - set(persona_skills)
+    transitions = owned & private_names
+    if transitions:
+        raise SystemExit("managed alias now has a private wrapper; migrate explicitly: " + ", ".join(sorted(transitions)))
+    unmanaged = [n for n in persona_skills if os.path.lexists(os.path.join(home, "skills", n)) and n not in owned]
+    adopt = {n for n in unmanaged if tree_hash(os.path.join(home, "skills", n)) == tree_hash(persona_skills[n])}
+    collisions = [n for n in unmanaged if n not in adopt]
+    alias_collisions = [n for n, spec in aliases.items() if n != spec["target"] and n not in owned
+                        and os.path.lexists(os.path.join(home, "skills", n))]
+    if collisions or alias_collisions:
+        raise SystemExit("unmanaged persona skill collision: " + ", ".join(sorted(collisions + alias_collisions)))
+    sync_company_skills(persona_skills, os.path.join(home, "skills"), own_all=False,
+                        dry_run=args.dry_run, aliases=aliases, marker_name=".persona-skills.json", adopt=adopt)
+    if args.skills_only:
+        import render_harness
+        superego = next((l for l in selected if l["level"] == "superego"), None)
+        codex_home = layers.expand(args.codex_home)
+        if os.path.isdir(codex_home):
+            for line in render_harness.sync_skills(home, codex_home, args.dry_run, claude_only_skills(superego)):
+                print(line)
+        return 0
     text = root_claude_md(man, home)
     path = os.path.join(home, "CLAUDE.md")
     old = open(path, encoding="utf-8").read() if os.path.isfile(path) else None

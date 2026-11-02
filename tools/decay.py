@@ -26,17 +26,23 @@ import shutil
 import sys
 import time
 
+import importlib.util
+
+_roots_spec = importlib.util.spec_from_file_location("roots", os.path.join(os.path.dirname(__file__), "roots.py"))
+roots = importlib.util.module_from_spec(_roots_spec)
+_roots_spec.loader.exec_module(roots)
+
 HOME = os.path.expanduser("~/.claude")
 CODEX = os.path.expanduser("~/.codex")
 BASE_DAYS = {"memory": 45.0, "skill": 60.0}
 DORMANT = 0.5
 WINDOW_DAYS = 180
 # Sessions run from the context repos (weekly pass, harvest, maintenance, layer work) read every memory on
-# purpose; counting them would mark everything as used. The repos come from the psique manifest (layer paths
+# purpose; counting them would mark everything as used. The repos come from the self manifest (layer paths
 # and the meta repo itself), plus CONTEXT_SKIP_PROJECTS (comma-separated project keys) for anything else.
 def skip_projects() -> tuple:
     keys = set(filter(None, os.environ.get("CONTEXT_SKIP_PROJECTS", "").split(",")))
-    manifest = os.environ.get("SYNC_MANIFEST", os.path.expanduser("~/Codes/psique/manifest.json"))
+    manifest = os.environ.get("SYNC_MANIFEST", roots.default_manifest())
     try:
         import json
         with open(manifest, encoding="utf-8") as fh:

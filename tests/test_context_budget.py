@@ -325,6 +325,13 @@ class LiveManifestTest(unittest.TestCase):
         home = os.path.expanduser("~/.claude")
         if not (os.path.isfile(manifest) and os.path.isdir(home)):
             self.skipTest("no live manifest here")
+        import json
+        import pathlib
+        import migrate
+        with open(manifest, encoding="utf-8") as fh:
+            pending = [c for c in migrate.plan(json.load(fh), pathlib.Path(home), migrate.load_map()) if c["kind"] != "repo"]
+        if pending:
+            self.skipTest("the live home still has pre-rename names: run tools/migrate.py first")
         rep = cb.report(manifest, home)
         self.assertEqual(rep["problems"], [], rep["problems"])
 

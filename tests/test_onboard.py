@@ -24,7 +24,10 @@ CANARY_ID = "CANARY-PERSONAL-ID-7731"
 CANARY_COMPANY = "CANARY-OTHER-COMPANY-5520"
 CANARY_EGO = "CANARY-OWNER-EGO-4417"
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_NOSYSTEM": "1"}
+           "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_NOSYSTEM": "1",
+           # Tests are offline: any network git (the superego layer is the real checkout, whose origin is on
+           # GitHub) fails fast instead of waiting on an SSH host-key or credential prompt.
+           "GIT_ALLOW_PROTOCOL": "file", "GIT_SSH_COMMAND": "false", "GIT_TERMINAL_PROMPT": "0"}
 LOCAL_TERMS = {
     "patterns": [{"name": "owner-name", "regex": "restricted-owner"},
                  {"name": "colleague-name", "regex": "restricted-colleague"}],
@@ -54,6 +57,53 @@ def make_shared(remote: Path, owner: str, repo: str, layer: dict, files: dict[st
     bare.parent.mkdir(parents=True, exist_ok=True)
     git("clone", "-q", "--bare", str(work), str(bare))
     return str(bare)
+
+
+class ParserTest(unittest.TestCase):
+    def test_deprecated_psique_repo_alias_uses_the_same_destination(self):
+        for command in ("init", "restore"):
+            current = onboard.parser().parse_args([command, "--self-repo", "custom"])
+            legacy = onboard.parser().parse_args([command, "--psique-repo", "custom"])
+            self.assertEqual(vars(current), vars(legacy))
+            self.assertEqual(legacy.self_repo, "custom")
+
+    def test_default_repo_names_and_deprecated_id_alias(self):
+        args = onboard.parser().parse_args(["init"])
+        self.assertEqual((args.self_repo, args.id_repo), ("self", "id"))
+        legacy = onboard.parser().parse_args(["init", "--id-context-repo", "custom-id"])
+        self.assertEqual(legacy.id_repo, "custom-id")
+
+
+class BackupTest(unittest.TestCase):
+    def test_new_backup_uses_self_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            path.write_text("personal rules", encoding="utf-8")
+            state = {"backups": {}}
+            onboard.backup_foreign(path, onboard.GENERATED_CLAUDE, state, "CLAUDE.md")
+            backup = path.with_name("CLAUDE.md.pre-self")
+            self.assertEqual(backup.read_text(encoding="utf-8"), "personal rules")
+            self.assertEqual(state["backups"]["CLAUDE.md"], str(backup))
+
+    def test_existing_legacy_backup_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CLAUDE.md"
+            path.write_text("current rules", encoding="utf-8")
+            legacy = path.with_name("CLAUDE.md.pre-psique")
+            legacy.write_text("original rules", encoding="utf-8")
+            state = {"backups": {}}
+            onboard.backup_foreign(path, onboard.GENERATED_CLAUDE, state, "CLAUDE.md")
+            self.assertEqual(state["backups"]["CLAUDE.md"], str(legacy))
+            self.assertEqual(legacy.read_text(encoding="utf-8"), "original rules")
+            self.assertFalse(path.with_name("CLAUDE.md.pre-self").exists())
+
+
+class OfflineLockTest(unittest.TestCase):
+    def test_network_git_fails_fast_in_the_fixture_env(self):
+        env = dict(os.environ, **GIT_ENV)
+        res = subprocess.run(["git", "ls-remote", "git@github.com:example/none.git"], env=env, capture_output=True,
+                             text=True, timeout=20)
+        self.assertNotEqual(res.returncode, 0)
 
 
 class Fixture(unittest.TestCase):
@@ -91,7 +141,7 @@ class Fixture(unittest.TestCase):
         self.decoy_ego = make_shared(self.remote, "owner", other, {
             "level": "ego", "name": "other", "globals": ["g.md"], "rules": [], "dirs": [], "files": []},
             {"global/g.md": f"{CANARY_COMPANY}\n"})
-        self.decoy_id = make_shared(self.remote, "owner", "id-context", {
+        self.decoy_id = make_shared(self.remote, "owner", "id", {
             "level": "id", "globals": ["g.md"], "rules": [], "dirs": [], "files": []}, {"global/g.md": f"{CANARY_ID}\n"})
 
     def argv(self, *extra, jobs="plan"):
@@ -122,7 +172,7 @@ class InstallTest(Fixture):
         for text in (claude, agents.replace("\r\n", "\n")):
             self.assertIn("team-glossary.md" if text is claude else "term-a", text)
         self.assertIn("teamx", agents, "the person's own ego, made from the template, is composed")
-        manifest = json.loads((self.home / "Codes" / "psique" / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.home / "Codes" / "self" / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual([l["level"] for l in manifest["layers"]], ["superego", "collective", "ego", "id"])
         self.assertEqual([l.get("mode") for l in manifest["layers"]], ["readonly", "readonly", None, None],
                          "superego and the collective are shared and read-only; ego and id are the person's own")
@@ -130,7 +180,7 @@ class InstallTest(Fixture):
         self.assertIn("testperson", ego["repo"])
         self.assertTrue((self.remote / "testperson" / "ego-teamx.git").is_dir(), "own private ego repo")
         self.assertEqual(manifest["default_level"], "id")
-        for repo in ("psique", "id-context"):  # created in HIS account
+        for repo in ("self", "id"):  # created in HIS account
             self.assertTrue((self.remote / "testperson" / f"{repo}.git").is_dir(), repo)
         self.assertFalse(any("[failed]" in l or "FAIL]" in l for l in self.lines), self.lines)
 
@@ -189,10 +239,10 @@ class InstallTest(Fixture):
     def test_rerun_changes_nothing(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
         first = (self.home / ".claude" / "CLAUDE.md").read_bytes()
-        commits = git("rev-list", "--count", "HEAD", cwd=self.home / "Codes" / "id-context")
+        commits = git("rev-list", "--count", "HEAD", cwd=self.home / "Codes" / "id")
         self.assertEqual(self.run_cli(self.argv()), 0, "\n".join(self.lines))
         self.assertEqual((self.home / ".claude" / "CLAUDE.md").read_bytes(), first)
-        self.assertEqual(git("rev-list", "--count", "HEAD", cwd=self.home / "Codes" / "id-context"), commits)
+        self.assertEqual(git("rev-list", "--count", "HEAD", cwd=self.home / "Codes" / "id"), commits)
 
     def test_default_level_is_id_so_unlabeled_notes_stay_private(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
@@ -201,7 +251,7 @@ class InstallTest(Fixture):
         (mem / "mine.md").write_text("---\nname: mine\n---\nplain note\n", encoding="utf-8")
         (mem / "team.md").write_text("---\nname: team\nlevel: ego\n---\nfor the team\n", encoding="utf-8")
         self.assertEqual(self.run_cli(["update", "--push", "--no-pull"]), 0, "\n".join(self.lines))
-        pushed = git("ls-tree", "-r", "--name-only", "HEAD", cwd=self.remote / "testperson" / "id-context.git")
+        pushed = git("ls-tree", "-r", "--name-only", "HEAD", cwd=self.remote / "testperson" / "id.git")
         self.assertIn("memory/k/mine.md", pushed)
         self.assertNotIn("team.md", pushed, "a note labeled for the ego never goes to the id repo")
         in_ego = git("ls-tree", "-r", "--name-only", "HEAD", cwd=self.remote / "testperson" / "ego-teamx.git")
@@ -224,7 +274,7 @@ class InstallTest(Fixture):
         self.assertEqual(self.run_cli(["uninstall"]), 0)
         self.assertEqual((self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8"), "my own rules\n")
         self.assertFalse((self.home / ".claude" / "team-glossary.md").exists())
-        self.assertTrue((self.remote / "testperson" / "id-context.git").is_dir(), "the remote repo stays")
+        self.assertTrue((self.remote / "testperson" / "id.git").is_dir(), "the remote repo stays")
 
     def test_contribute_start_and_submit_use_a_worktree_and_open_a_pr(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
@@ -257,7 +307,7 @@ class InstallTest(Fixture):
 class JobsTest(Fixture):
     def test_one_python_job_per_os_and_no_bash(self):
         self.assertEqual(self.run_cli(self.argv()), 0)
-        manifest = self.home / "Codes" / "psique" / "manifest.json"
+        manifest = self.home / "Codes" / "self" / "manifest.json"
         for plat in ("win32", "darwin", "linux"):
             jobs = scheduler.jobs_for(manifest, plat)
             self.assertEqual([j.name for j in jobs], ["superego-testperson-update"], plat)
@@ -295,7 +345,7 @@ class SuperegoPayloadTest(unittest.TestCase):
         cfg = layers.read_json(str(ROOT / "superego" / "layer.json"))
         excluded = set(cfg.get("install_exclude", {}).get("skills", []))
         pats = privacy.patterns()
-        for sk in sorted((ROOT / "superego" / "skills").iterdir()):
+        for sk in sorted((ROOT / "superego" / "skills").iterdir() if (ROOT / "superego" / "skills").is_dir() else []):
             if not sk.is_dir() or sk.name in excluded or sk.name.startswith("neon"):
                 continue
             self.assertEqual(privacy.scan_paths([sk], pats, ROOT), [], f"skill {sk.name}: clean it or add it to install_exclude")

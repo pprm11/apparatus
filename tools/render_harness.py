@@ -103,19 +103,24 @@ def make_link(src: str, dst: str) -> None:
         os.symlink(src, dst, target_is_directory=True)
 
 
-def sync_skills(claude_home: str, codex_home: str, dry_run: bool) -> list[str]:
+def sync_skills(claude_home: str, codex_home: str, dry_run: bool, extra_claude_only: set[str] | None = None) -> list[str]:
     src_root = os.path.join(claude_home, "skills")
     dst_root = os.path.join(codex_home, "skills")
     manifest = os.path.join(claude_home, "harness", "skills.json")
-    claude_only = set(json.loads(read_text(manifest) or "{}").get("claude_only", []))
+    claude_only = set(json.loads(read_text(manifest) or "{}").get("claude_only", [])) | (extra_claude_only or set())
+    marker = os.path.join(src_root, ".persona-skills.json")
+    aliases = json.loads(read_text(marker) or "{}").get("aliases", {})
+    claude_only |= {target for name, target in aliases.items() if name in claude_only}
+    claude_only |= {name for name, target in aliases.items() if target in claude_only}
     wanted = {
         name for name in (os.listdir(src_root) if os.path.isdir(src_root) else [])
         if name != "synced" and name not in claude_only and os.path.isfile(os.path.join(src_root, name, "SKILL.md"))
     }
     log = []
-    os.makedirs(dst_root, exist_ok=True)
+    if not dry_run:
+        os.makedirs(dst_root, exist_ok=True)
     ours = os.path.normcase(os.path.abspath(src_root))
-    for name in sorted(os.listdir(dst_root)):  # drop our stale links only
+    for name in sorted(os.listdir(dst_root) if os.path.isdir(dst_root) else []):  # drop our stale links only
         target = link_target(os.path.join(dst_root, name))
         if target and target.startswith(ours) and name not in wanted:
             log.append(f"unlink {name}")
@@ -191,10 +196,13 @@ def render_company(args: argparse.Namespace) -> int:
                 fh.write(text)
     plan = compose.company_plan(man, args.company, data, args.codes, note=lambda m: None)
     only_claude = compose.claude_only_skills(plan["superego"])
+    only_claude |= {spec["target"] for name, spec in plan["aliases"].items() if name in only_claude}
     portable = {n: src for n, src in plan["skills"].items() if n not in only_claude}
+    aliases = {name: spec for name, spec in plan["aliases"].items()
+               if name not in only_claude and spec["target"] in portable}
     skills_dir = os.path.join(codex_home, "skills")
     if portable or os.path.isfile(os.path.join(skills_dir, compose.SKILL_MARKER)):
-        for name in compose.sync_company_skills(portable, skills_dir, own_all=False, dry_run=args.dry_run):
+        for name in compose.sync_company_skills(portable, skills_dir, own_all=False, dry_run=args.dry_run, aliases=aliases):
             print(f"skill {name}")
     return 0
 
@@ -207,7 +215,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--max-bytes", type=int, default=MAX_BYTES, help="hard limit; the warning starts at 7/8 of it")
     ap.add_argument("--manifest", default=os.environ.get("SYNC_MANIFEST"),
-                    help="psique manifest with the per-layer byte budgets; without it (tests, ad-hoc runs) only the hard limit applies")
+                    help="self manifest with the per-layer byte budgets; without it (tests, ad-hoc runs) only the hard limit applies")
     ap.add_argument("--company", help="render only this company's AGENTS.md (see the module docstring)")
     ap.add_argument("--companies", help="with --company: companies.json (default ~/.claude/companies.json)")
     ap.add_argument("--root", help="folder holding the layer repos (default: $PSIQUE_ROOT, else the parent of this checkout)")
@@ -236,7 +244,7 @@ def main() -> int:
     if size > limit:
         print(f"AGENTS.md would be {size} bytes, over the {limit} Codex limit; not written")
         return 1
-    # Per-layer byte budgets (psique manifest): a layer over its budget blocks the render, like the hard limit.
+    # Per-layer byte budgets (self manifest): a layer over its budget blocks the render, like the hard limit.
     manifest = os.path.normpath(os.path.expanduser(args.manifest)) if args.manifest else ""
     if manifest and os.path.isfile(manifest):
         import context_budget  # noqa: E402

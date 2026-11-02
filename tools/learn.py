@@ -36,13 +36,14 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import agent_sessions  # noqa: E402
 import codex_sessions  # noqa: E402
+import roots  # noqa: E402
 import decisions  # noqa: E402
 import layers  # noqa: E402
 from extract_prompts import typed_text  # noqa: E402
 from redact import redact  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MANIFEST = os.environ.get("SYNC_MANIFEST", os.path.expanduser("~/Codes/psique/manifest.json"))
+MANIFEST = os.environ.get("SYNC_MANIFEST", roots.default_manifest())
 LEVELS = ("superego", "ego", "id")
 DEFAULT_LEVEL = "ego"
 HOME = os.path.expanduser("~/.claude")

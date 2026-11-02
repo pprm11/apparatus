@@ -2,7 +2,7 @@
 # Weekly LLM maintenance (lint + compile) of the Claude context, then sync and push.
 # Only the ego layer's memory, log, proposals and reports are maintained here; superego and id memories are
 # edited by hand or by context-ingest. Tools, prompts, .work/ and locks stay in this (superego) repo.
-# Usage: ./weekly.sh [--manifest ~/Codes/psique/manifest.json] [days_back]
+# Usage: ./weekly.sh [--manifest <root>/self/manifest.json] [days_back]
 #        (default window: since the newest $EGO/reports/*.md, at most 28 days)
 set -Eeuo pipefail
 echo "== $(date '+%F %T') $0 $*"
@@ -14,7 +14,7 @@ REPO_WIN="$(native_path "$REPO")"
 HOME_UNIX="$HOME"
 HOME_WIN="$(native_path "$HOME")"
 DATE="$(date +%F)"
-MANIFEST="${SYNC_MANIFEST:-$HOME/Codes/psique/manifest.json}"
+MANIFEST="${SYNC_MANIFEST:-$(default_manifest "${PSIQUE_ROOT:-$(dirname "$REPO")}")}"
 DAYS=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -172,6 +172,6 @@ rm -f "$REPO/.work/weekly.lock"
 python -I "$REPO/tools/decisions.py" scan > /dev/null || echo "inbox scan failed"
 # The model's changes (memory, log.md, proposals.md, reports) as one maintenance commit; sync pushes it.
 git -c core.safecrlf=false add -A
-if ! git diff --cached --quiet; then git commit -q -m "chore(weekly): $DATE maintenance pass"; fi
+if ! git diff --cached --quiet; then SYNC_COMMIT=1 git commit -q -m "chore(weekly): $DATE maintenance pass"; fi
 "$REPO/sync.sh" --push --manifest "$MANIFEST"
 echo "weekly done: $EGO/reports/$DATE.md"

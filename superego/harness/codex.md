@@ -15,7 +15,7 @@
   republished by the daily Claude task; Codex only edits the data.
 - No hooks: nothing blocks a secret in the prompt, nothing stops `find /` (the rule text applies) and nothing
   rebuilds the index by itself (`context-ingest` says to run the rebuild).
-- Skills: the portable ones are in `~/.codex/skills` as links to `~/.claude/skills`; skills listed under
-  `claude_only` in `harness/skills.json` are Claude-only.
+- Skills: author reusable English skills in the readonly persona repo; compose private aliases and policy in
+  `~/.claude/skills`. Portable skills link from `~/.codex/skills`; `claude_only` excludes canonical names and aliases.
 - Jobs: do not run `weekly.sh` or register a scheduled task. Do not edit the copies in layer repos, which sync
   overwrites; edit in `~/.claude`, and sync regenerates `~/.codex/AGENTS.md`.
