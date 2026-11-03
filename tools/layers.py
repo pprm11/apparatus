@@ -182,16 +182,13 @@ def _git(repo: str, *args: str) -> str:
     return out.stdout.strip() if out.returncode == 0 else ""
 
 
-def guard_default_branch(repo: str) -> None:
-    """A readonly layer is fast-forwarded, so it must sit on its default branch. A checkout left on another
-    branch (a task branch, a detached HEAD) would make `pull --ff-only` fail with no hint; abort with the fix.
-    Never switches branches itself."""
+def off_default_branch(repo: str) -> tuple[str, str] | None:
+    """(current, default) when a readonly layer's checkout is not on its default branch (a task branch, a review
+    worktree, a detached HEAD), else None. A readonly layer is only fast-forwarded, so such a checkout is skipped
+    by `pull`; this never switches branches."""
     default = _git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/") or "main"
     current = _git(repo, "symbolic-ref", "--short", "HEAD")
-    if current != default:
-        raise SystemExit(
-            f"readonly layer {repo} is on {current or 'a detached HEAD'}, not its default branch {default}; "
-            f"fix: git -C {repo} switch {default}")
+    return (current or "a detached HEAD", default) if current != default else None
 
 
 def pull(man: dict, dry: bool = False) -> list[str]:
@@ -208,8 +205,12 @@ def pull(man: dict, dry: bool = False) -> list[str]:
         if not has_remote:
             log.append(f"[{layer['level']}] no remote, nothing to pull")
             continue
-        if not ref and not dry:
-            guard_default_branch(repo)
+        off = None if ref or dry else off_default_branch(repo)
+        if off:
+            msg = f"skipping pull of readonly layer {layer['level']} at {repo}: on {off[0]}, not {off[1]}"
+            print(f"warning: {msg}", file=sys.stderr)
+            log.append(f"[{layer['level']}] {msg}")
+            continue
         cmds = [["git", "-C", repo, "fetch", "--tags", "--quiet"]]
         cmds.append(["git", "-C", repo, "checkout", "--quiet", ref] if ref else ["git", "-C", repo, "pull", "--ff-only", "--quiet"])
         for cmd in cmds:

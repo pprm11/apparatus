@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir from sys.path
 import roots  # noqa: E402
-from search_memory import resolve_root, search  # noqa: E402
+from search_memory import load_index, resolve_root, search  # noqa: E402
 
 def evals_dir() -> str:
     """evals/ of the active ego layer (the cases query that company's memory); EVALS_DIR overrides."""
@@ -35,6 +35,19 @@ EVALS = evals_dir()
 SETS = ("search_cases.json", "search_cases_holdout.json")
 
 
+def case_rank(case: dict, root: str, index: dict) -> tuple[int | None, bool]:
+    """Return rank and whether the gold document exists in the indexed source set."""
+    hits = search(case["query"], root, 10, index)
+    if "expect_path" in case:
+        expected = os.path.normcase(os.path.normpath(os.path.join(root, case["expect_path"])))
+        match = lambda doc: os.path.normcase(os.path.normpath(doc["path"])) == expected
+    else:
+        match = lambda doc: doc["name"] == case["expect"]
+    present = any(match(doc) for doc in index["docs"])
+    rank = next((i for i, hit in enumerate(hits, 1) if match(hit.doc.__dict__)), None)
+    return rank, present
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
@@ -44,18 +57,19 @@ def main() -> None:
         args.root = resolve_root(args.root)
     except (OSError, ValueError, KeyError) as exc:
         ap.error(str(exc))
+    index = load_index(args.root)
     for name in SETS:
         with open(os.path.join(EVALS, name), encoding="utf-8") as fh:
             cases = json.load(fh)
-        top1 = top3 = 0
+        top1 = top3 = missing = 0
         print(f"## {name}")
         for case in cases:
-            names = [h.doc.name for h in search(case["query"], args.root, 10)]
-            rank = names.index(case["expect"]) + 1 if case["expect"] in names else None
+            rank, present = case_rank(case, args.root, index)
             top1 += rank == 1
             top3 += rank is not None and rank <= 3
-            print(f"{rank or '-':>2}  {case['query']}")
-        print(f"hit@1 {top1} de {len(cases)} · hit@3 {top3} de {len(cases)}\n")
+            missing += not present
+            print(f"{rank or '-':>2}  {case['query']}" + (" [missing gold]" if not present else ""))
+        print(f"hit@1 {top1}/{len(cases)} | hit@3 {top3}/{len(cases)} | missing gold {missing}\n")
 
 if __name__ == "__main__":
     main()

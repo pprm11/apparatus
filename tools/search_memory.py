@@ -14,10 +14,11 @@ The default personal home keeps the legacy repo index and catalog. Other roots k
 the company associated with CODEX_HOME selects it. No source data crosses roots.
 """
 import argparse
-import glob
+import fnmatch
 import hashlib
 import json
 import math
+import ntpath
 import os
 import re
 import sys
@@ -89,12 +90,14 @@ def _field(front: str, key: str) -> str:
     return m.group(1).strip().strip("\"'") if m else ""
 
 
-def _read(path: str, kind: str) -> Doc:
+def _read(path: str, kind: str, root: str = "") -> Doc:
     with open(long_path(path), encoding="utf-8", errors="replace") as fh:
         text = fh.read().replace("\r\n", "\n")
     m = FRONT.match(text)
     front, body = (m.group(1), text[m.end():]) if m else ("", text)
-    if kind == "skill":
+    if kind == "skill-reference":
+        default_name = os.path.relpath(path, root).replace(os.sep, "/")
+    elif kind == "skill":
         default_name = os.path.basename(os.path.dirname(path))
     else:
         default_name = os.path.splitext(os.path.basename(path))[0]
@@ -124,8 +127,8 @@ def default_root() -> str:
 
 def resolve_root(explicit: str | None = None) -> str:
     """Resolve and validate one existing context root; an explicit path takes precedence."""
-    root = os.path.abspath(os.path.expanduser(explicit or default_root()))
-    if not os.path.isdir(root):
+    root = _logical_path(os.path.abspath(os.path.expanduser(explicit or default_root())))
+    if not os.path.isdir(long_path(root)):
         raise ValueError(f"root does not exist: {root}")
     return root
 
@@ -138,14 +141,120 @@ def state_paths(root: str) -> tuple[str, str]:
     return str(directory / "search-index.json"), str(directory / "INDEX.md")
 
 
+def _logical_path(path: str) -> str:
+    if os.name == "nt":
+        if path[:8].lower() == "\\\\?\\unc\\":
+            return "\\\\" + path[8:]
+        if path.startswith("\\\\?\\"):
+            return path[4:]
+    return path
+
+
+def _within(path: str, directory: str) -> bool:
+    target = _logical_path(os.path.realpath(long_path(path), strict=True))
+    base = _logical_path(os.path.realpath(long_path(directory), strict=True))
+    return os.path.normcase(os.path.commonpath((target, base))) == os.path.normcase(base)
+
+
+def _auxiliary_entry(entry: object) -> tuple[str, str, list[str]]:
+    if not isinstance(entry, dict):
+        raise ValueError("invalid search source entry")
+    kind = entry.get("kind")
+    keys = {"path", "kind", "role", "reason"} | ({"parent_skill"} if kind == "skill-reference" else set())
+    if (set(entry) != keys or kind not in ("rule", "skill-reference")
+            or entry.get("role") not in ("guidance", "reference")
+            or not isinstance(entry.get("reason"), str) or not entry["reason"].strip()
+            or not isinstance(entry.get("path"), str)):
+        raise ValueError("invalid search source entry")
+    relative = entry["path"].replace("\\", "/")
+    parts = relative.split("/")
+    if (ntpath.splitdrive(relative)[0] or relative.startswith("/") or any(p in ("", ".", "..") for p in parts)
+            or not relative.lower().endswith(".md") or parts[-1].lower() in ("claude.md", "agents.md", "memory.md", "index.md")):
+        raise ValueError("invalid search source path")
+    return relative, kind, parts
+
+
+def _auxiliary_owner(root: str, entry: dict, kind: str, parts: list[str]) -> str:
+    path = os.path.join(root, *parts)
+    if kind == "rule":
+        if len(parts) != 1 or not _within(path, root):
+            raise ValueError("rule must be a root document within the selected root")
+    else:
+        parent = entry["parent_skill"]
+        if (not isinstance(parent, str) or len(parts) < 4 or parts[:3] != ["skills", parent, "references"]
+                or parent in ("", ".", "..") or "/" in parent or "\\" in parent):
+            raise ValueError("invalid skill reference parent")
+        skill = os.path.join(root, "skills", parent)
+        with open(long_path(os.path.join(skill, "SKILL.md")), "rb"):
+            pass
+        if not _within(path, skill):
+            raise ValueError("skill reference escapes its registered skill")
+    return path
+
+
+def source_manifests(root: str) -> list[str]:
+    """Each layer can own a fragment without exporting another layer's private catalog."""
+    manifest = os.path.join(root, "search-sources.json")
+    paths = [manifest] if os.path.lexists(long_path(manifest)) else []
+    folder = os.path.join(root, "search-sources.d")
+    paths.extend(os.path.join(folder, e.name) for e in _entries(folder)
+                 if not e.name.startswith(".") and e.name.endswith(".json"))
+    return sorted(paths)
+
+
+def _auxiliary_config(manifest: str) -> list[dict]:
+    with open(long_path(manifest), encoding="utf-8") as fh:
+        config = json.load(fh)
+    if (not isinstance(config, dict) or set(config) != {"version", "documents"}
+            or type(config["version"]) is not int or config["version"] != 1
+            or not isinstance(config["documents"], list)):
+        raise ValueError("invalid search sources manifest")
+    return config["documents"]
+
+
+def auxiliary_sources(root: str) -> list[tuple[str, str]]:
+    """Explicit reviewed sources; stale configuration stops the build instead of reducing coverage."""
+    found, seen = [], set()
+    for manifest in source_manifests(root):
+        for entry in _auxiliary_config(manifest):
+            relative, kind, parts = _auxiliary_entry(entry)
+            key = os.path.normcase(relative)
+            if key in seen:
+                raise ValueError("duplicate search source path")
+            seen.add(key)
+            found.append((_auxiliary_owner(root, entry, kind, parts), kind))
+    return found
+
+
 def sources(root: str) -> list[tuple[str, str]]:
-    root = glob.escape(root)  # Only the patterns below are wildcards; the selected home is literal.
-    found = [(p, "memory") for p in glob.glob(os.path.join(root, "projects", "*", "memory", "*.md"))
-             if os.path.basename(p) != "MEMORY.md"]
-    found += [(p, "rule") for folder in ("rules", "global")
-              for p in glob.glob(os.path.join(root, folder, "*.md"))]
-    found += [(p, "skill") for p in glob.glob(os.path.join(root, "skills", "*", "SKILL.md"))]
-    return sorted(found)
+    found = []
+    projects = os.path.join(root, "projects")
+    for project in _entries(projects):
+        if not project.name.startswith(".") and project.is_dir():
+            memory = os.path.join(projects, project.name, "memory")
+            found.extend((os.path.join(memory, entry.name), "memory") for entry in _entries(memory)
+                         if not entry.name.startswith(".") and fnmatch.fnmatch(entry.name, "*.md")
+                         and entry.name != "MEMORY.md")
+    for folder in ("rules", "global"):
+        directory = os.path.join(root, folder)
+        found.extend((os.path.join(directory, entry.name), "rule") for entry in _entries(directory)
+                     if not entry.name.startswith(".") and fnmatch.fnmatch(entry.name, "*.md"))
+    skills = os.path.join(root, "skills")
+    for skill in _entries(skills):
+        if not skill.name.startswith(".") and skill.is_dir():
+            path = os.path.join(skills, skill.name, "SKILL.md")
+            if os.path.lexists(long_path(path)):
+                found.append((path, "skill"))
+    return sorted(found + auxiliary_sources(root))
+
+
+def _entries(path: str) -> list[os.DirEntry]:
+    """Enumerate a literal directory, including Windows directories beyond MAX_PATH."""
+    try:
+        with os.scandir(long_path(path)) as entries:
+            return list(entries)
+    except FileNotFoundError:
+        return []
 
 
 _REPORTED: set[str] = set()
@@ -200,6 +309,7 @@ def source_fingerprint(root: str) -> str:
     glossary = os.path.join(root, "ubiquitous-language.md")
     if os.path.isfile(long_path(glossary)):
         paths.append(glossary)
+    paths.extend(source_manifests(root))
     digest = hashlib.sha256()
     for path in sorted(paths):
         encoded = os.fsencode(path)
@@ -213,7 +323,7 @@ def source_fingerprint(root: str) -> str:
 
 def build(root: str) -> dict:
     fingerprint = source_fingerprint(root)
-    docs = [_read(p, kind) for p, kind in readable_sources(root)]
+    docs = [_read(p, kind, root) for p, kind in readable_sources(root)]
     entries, df = [], {}
     for d in docs:
         tf = _weighted_tf(d)
@@ -241,6 +351,7 @@ def _newest(root: str) -> float:
     gloss = os.path.join(root, "ubiquitous-language.md")
     if os.path.exists(long_path(gloss)):
         newest = max(newest, os.path.getmtime(long_path(gloss)))
+    newest = max([newest] + [os.path.getmtime(long_path(p)) for p in source_manifests(root)])
     return newest
 
 
@@ -250,12 +361,12 @@ def cached_index(root: str, path: str | None = None) -> dict | None:
     path = path or state_paths(root)[0]
     newest = _newest(root)
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(long_path(path), encoding="utf-8") as fh:
             index = json.load(fh)
         known = sorted(e["path"] for e in index.get("docs", []))
         if (index.get("version") == INDEX_VERSION and index.get("root") == os.path.abspath(root)
                 and known == sorted(p for p, _ in readable_sources(root))
-                and index.get("newest_source", 0) >= newest and os.path.getmtime(path) >= newest
+                and index.get("newest_source", 0) >= newest and os.path.getmtime(long_path(path)) >= newest
                 and index.get("fingerprint") == source_fingerprint(root)):
             return index
     except (OSError, ValueError, KeyError, TypeError):
@@ -302,9 +413,9 @@ def catalog(index: dict) -> str:
             back = f" Linked from: {', '.join(e['backlinks'])}." if e["backlinks"] else ""
             lines.append(f"- **{e['name']}**: {e['description'].rstrip('.')}.{extra}{back}")
         lines.append("")
-    for kind, title in (("rule", "Global rules"), ("skill", "Skills")):
+    for kind, title in (("rule", "Global rules"), ("skill", "Skills"), ("skill-reference", "Skill references")):
         lines += [f"## {title}", ""]
-        lines += [f"- **{e['name']}**: {(e['description'] or e['body'].strip().splitlines()[0])[:200]}"
+        lines += [f"- **{e['name']}**: {(e['description'] or next(iter(e['body'].strip().splitlines()), e['name']))[:200]}"
                   for e in sorted((e for e in index["docs"] if e["kind"] == kind), key=lambda e: e["name"])]
         lines.append("")
     missing = sorted(e["name"] for e in memories if not e["keywords"])
@@ -313,11 +424,11 @@ def catalog(index: dict) -> str:
 
 
 def _write_atomic(path: str, text: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(long_path(os.path.dirname(path)), exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+    with open(long_path(tmp), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
-    os.replace(tmp, path)
+    os.replace(long_path(tmp), long_path(path))
 
 
 def write_index(root: str, force: bool = False, index_path: str | None = None, catalog_path: str | None = None) -> tuple[dict, bool]:
@@ -325,7 +436,7 @@ def write_index(root: str, force: bool = False, index_path: str | None = None, c
     index on disk is current and the catalog exists, unless `force`."""
     default_index, default_catalog = state_paths(root)
     index_path, catalog_path = index_path or default_index, catalog_path or default_catalog
-    if not force and os.path.exists(catalog_path):
+    if not force and os.path.exists(long_path(catalog_path)):
         current = cached_index(root, index_path)
         if current is not None:
             return current, False

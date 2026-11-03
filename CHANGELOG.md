@@ -7,6 +7,18 @@ Process: [docs/release.md](docs/release.md).
 
 ## [Unreleased]
 
+### Added (local search)
+
+- Reviewed auxiliary sources through optional per-home `search-sources.json` and layer-owned fragments: root guidance and skill
+  references join the lexical index, invalidate its cache on configuration changes, and reject stale or
+  escaping references. Search evaluation supports exact source paths and reports missing gold separately.
+- Source discovery and local index I/O reach Windows directories beyond MAX_PATH, including a long selected home.
+
+### Fixed (sync)
+
+- `pull` skips a readonly layer whose checkout is not on its default branch (for example a review worktree) with a
+  one-line warning instead of aborting the whole sync; other layers still sync. It never switches branches.
+
 ### Fixed (migrate)
 
 - `tools/migrate.py` no longer renames or prunes a skill whose own `level:` is ego, id or collective (a person's

@@ -1,5 +1,7 @@
 """Tests for tools/layers.py (routing by level) and tools/compose.py (root CLAUDE.md, index lines), plus the
 layered restore.sh. No network, no real ~/.claude: everything lives in temp dirs."""
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -327,17 +329,31 @@ class ReadonlyLayerTest(LayerSandbox):
         self.man = {"layers": [{"level": "collective", "path": posix(clone), "active": True, "mode": "readonly"}]}
         return clone, git
 
-    def test_pull_aborts_naming_the_branch_when_a_readonly_layer_is_not_on_its_default_branch(self):
+    def test_pull_skips_with_a_warning_when_a_readonly_layer_is_not_on_its_default_branch(self):
         clone, git = self._readonly_clone()
         git("switch", "-q", "-c", "codex/task", cwd=clone)
-        with self.assertRaises(SystemExit) as ctx:
-            layers.pull(self.man)
-        msg = str(ctx.exception)
-        self.assertIn("codex/task", msg)
-        self.assertIn("switch main", msg)
-        self.assertNotIn("pull failed", msg)
+        other = os.path.join(self.tmp, "other-ro")
+        subprocess.run(["git", "init", "-q", "-b", "main", other], check=True)
+        self.man["layers"].append({"level": "persona", "path": posix(other), "active": True, "mode": "readonly"})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            log = layers.pull(self.man)
+        warning = err.getvalue().strip()
+        self.assertEqual(warning.count(chr(10)), 0)
+        self.assertIn("skipping pull of readonly layer collective", warning)
+        self.assertIn(posix(clone), warning.replace("\\", "/"))
+        self.assertIn("on codex/task, not main", warning)
+        self.assertEqual(log, [f"[collective] {warning.removeprefix('warning: ')}", "[persona] no remote, nothing to pull"])
+        self.assertFalse(any("fetch" in l or "pull --ff-only" in l for l in log))
         branch = subprocess.run(["git", "-C", clone, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
         self.assertEqual(branch, "codex/task")  # never auto-switches
+
+    def test_a_real_pull_failure_on_the_default_branch_still_aborts(self):
+        clone, git = self._readonly_clone()
+        git("remote", "set-url", "origin", os.path.join(self.tmp, "gone.git"), cwd=clone)
+        with self.assertRaises(SystemExit) as ctx:
+            layers.pull(self.man)
+        self.assertIn("pull failed", str(ctx.exception))
 
     def test_pull_fast_forwards_a_readonly_layer_on_its_default_branch(self):
         self._readonly_clone()
